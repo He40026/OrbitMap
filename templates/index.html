@@ -195,6 +195,17 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
             </div>
         </div>
 
+        <div class="coverage-section" style="margin-top:12px;padding-top:10px;border-top:1px solid #2a2a4a;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.76em;color:#aab;cursor:pointer;margin-bottom:4px;">
+                <input type="checkbox" id="toggleCoverage" style="accent-color:#4a5aff;">
+                <span>Coverage 覆盖范围</span>
+            </label>
+            <div id="coverageControls" class="form-group" style="margin-bottom:4px;">
+                <label>Min Elevation 最小仰角: <span id="elevLabel">10°</span></label>
+                <input type="range" id="elevSlider" min="0" max="45" value="10" step="1" style="width:100%;">
+            </div>
+        </div>
+
         <div id="results">
             <h4>Orbital Elements 轨道参数</h4>
             <div id="resultsContent" style="color:#666;">Press Compute to see results<br>点击"计算轨道"查看结果</div>
@@ -259,6 +270,9 @@ const progTimeLabel = document.getElementById('progTimeLabel');
 let animSpeedSec = 10;
 let isScrubbing = false;
 let currentEpoch = null;
+let coverageEnabled = false;
+let coverageElevation = 10;
+let oldCoverageElevation = 10;
 
 function formatUtc(date) {
     return date.toISOString().replace('T', ' ').substring(0, 19);
@@ -356,8 +370,19 @@ document.querySelectorAll('.tile-btn').forEach(btn => {
 
 let groundTrackLayer = L.layerGroup().addTo(leafletMap);
 let terminatorLayer = L.layerGroup().addTo(leafletMap);
+let coverageLayer = L.layerGroup().addTo(leafletMap);
 let leafletStartMarker = null;
 let leafletSatMarker2D = null;
+
+document.getElementById('toggleCoverage').addEventListener('change', (e) => {
+    coverageEnabled = e.target.checked;
+    if (!coverageEnabled) coverageLayer.clearLayers();
+});
+
+document.getElementById('elevSlider').addEventListener('input', (e) => {
+    coverageElevation = parseInt(e.target.value);
+    document.getElementById('elevLabel').textContent = coverageElevation + '\u00b0';
+});
 
 // ── Three.js setup ──
 const scene = new THREE.Scene();
@@ -558,6 +583,36 @@ function splitLonWrap(points) {
     return segments;
 }
 
+function buildCoveragePolygons(pts) {
+    const N = pts.length;
+    const crosses = [];
+    for (let i = 0; i < N; i++) {
+        const p = pts[i], n = pts[(i + 1) % N];
+        const diff = n[1] - p[1];
+        if (Math.abs(diff) > 180) {
+            const frac = (180 - p[1]) / diff;
+            crosses.push({ idx: i, lat: p[0] + frac * (n[0] - p[0]) });
+        }
+    }
+    if (crosses.length !== 2) return [pts];
+    const polys = [];
+    for (let side = 0; side < 2; side++) {
+        const c0 = crosses[side], c1 = crosses[1 - side];
+        const firstPtLon = pts[(c0.idx + 1) % N][1];
+        const closeLon = firstPtLon > 0 ? 180 : -180;
+        const poly = [[c0.lat, closeLon]];
+        let i = (c0.idx + 1) % N;
+        while (i !== c1.idx) {
+            poly.push([pts[i][0], pts[i][1]]);
+            i = (i + 1) % N;
+        }
+        poly.push([pts[c1.idx][0], pts[c1.idx][1]]);
+        poly.push([c1.lat, closeLon]);
+        polys.push(poly);
+    }
+    return polys;
+}
+
 function updateTerminatorDynamic(gstNow) {
     terminatorLayer.clearLayers();
     const sunLon = ((sunRA - gstNow + 180) % 360 + 360) % 360 - 180;
@@ -599,6 +654,95 @@ function updateTerminatorDynamic(gstNow) {
             }
         }
     }
+}
+
+// ── Coverage (Footprint) ──
+const COV_N = 72;
+let coverage3DGroup = new THREE.Group();
+earthGroup.add(coverage3DGroup);
+let coverageConeGroup = new THREE.Group();
+scene.add(coverageConeGroup);
+let covLineGeom = new THREE.BufferGeometry();
+let covLinePos = new Float32Array((COV_N + 1) * 3);
+covLineGeom.setAttribute('position', new THREE.BufferAttribute(covLinePos, 3));
+let covLine = new THREE.Line(covLineGeom, new THREE.LineBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.6 }));
+coverage3DGroup.add(covLine);
+let covConePos = new Float32Array(COV_N * 9);
+let covConeGeom = new THREE.BufferGeometry();
+covConeGeom.setAttribute('position', new THREE.BufferAttribute(covConePos, 3));
+let covCone = new THREE.Mesh(covConeGeom, new THREE.MeshBasicMaterial({
+    color: 0x00ffcc, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false
+}));
+coverageConeGroup.add(covCone);
+let covCirclePts = [];
+
+function computeCoverageCircle(latDeg, lonDeg, elevAngle, altitude) {
+    const R_E = 6378.137;
+    const thetaRad = elevAngle * Math.PI / 180;
+    const h = altitude;
+    const sinEta = R_E * Math.cos(thetaRad) / (R_E + h);
+    if (sinEta >= 1) return [];
+    const lambda = Math.PI / 2 - thetaRad - Math.asin(sinEta);
+    if (lambda <= 0) return [];
+    const clat = latDeg * Math.PI / 180;
+    const clon = lonDeg * Math.PI / 180;
+    const pts = [];
+    for (let i = 0; i <= COV_N; i++) {
+        const b = (i / COV_N) * 2 * Math.PI;
+        const rlat = Math.asin(Math.sin(clat) * Math.cos(lambda) + Math.cos(clat) * Math.sin(lambda) * Math.cos(b));
+        const rlon = clon + Math.atan2(Math.sin(b) * Math.sin(lambda) * Math.cos(clat), Math.cos(lambda) - Math.sin(clat) * Math.sin(rlat));
+        const lat = rlat * 180 / Math.PI;
+        const lon = ((rlon * 180 / Math.PI) + 540) % 360 - 180;
+        const ex = R_E * Math.cos(rlat) * Math.cos(rlon);
+        const ey = R_E * Math.cos(rlat) * Math.sin(rlon);
+        const ez = R_E * Math.sin(rlat);
+        pts.push({ lat, lon, ex, ey, ez });
+    }
+    return pts;
+}
+
+function updateCoverage(satLat, satLon, alt, eciX, eciY, eciZ, thetaGP) {
+    coverageLayer.clearLayers();
+    coverage3DGroup.visible = coverageEnabled;
+    coverageConeGroup.visible = coverageEnabled;
+    if (!coverageEnabled) return;
+    const pts = computeCoverageCircle(satLat, satLon, coverageElevation, alt);
+    if (pts.length === 0) return;
+    covCirclePts = pts;
+    // 2D Leaflet polygon (clipped at antimeridian)
+    const geo = pts.map(p => [p.lat, p.lon]);
+    const polys = buildCoveragePolygons(geo);
+    polys.forEach(poly => {
+        if (poly.length > 2) {
+            L.polygon(poly, { color: '#00ffcc', weight: 1, fillColor: '#00ffcc', fillOpacity: 0.12, opacity: 0.5 }).addTo(coverageLayer);
+        }
+    });
+    // 3D circle on earthGroup (earth-local ECEF coords)
+    const posAttr = covLine.geometry.attributes.position;
+    const array = posAttr.array;
+    for (let i = 0; i <= COV_N && i < pts.length; i++) {
+        array[i * 3] = pts[i].ex;
+        array[i * 3 + 1] = pts[i].ez;
+        array[i * 3 + 2] = -pts[i].ey;
+    }
+    posAttr.needsUpdate = true;
+    // 3D cone from satellite world pos to circle world pos
+    const satWorld = eciToThree(eciX, eciY, eciZ);
+    const mat = earthGroup.matrixWorld;
+    const cPos = covCone.geometry.attributes.position;
+    const cArr = cPos.array;
+    for (let i = 0; i < COV_N; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.length];
+        const va = new THREE.Vector3(a.ex, a.ez, -a.ey).applyMatrix4(mat);
+        const vb = new THREE.Vector3(b.ex, b.ez, -b.ey).applyMatrix4(mat);
+        const idx = i * 9;
+        cArr[idx] = satWorld.x; cArr[idx + 1] = satWorld.y; cArr[idx + 2] = satWorld.z;
+        cArr[idx + 3] = va.x; cArr[idx + 4] = va.y; cArr[idx + 5] = va.z;
+        cArr[idx + 6] = vb.x; cArr[idx + 7] = vb.y; cArr[idx + 8] = vb.z;
+    }
+    cPos.needsUpdate = true;
+    covCone.geometry.computeVertexNormals();
 }
 
 // Initialize epoch and sim time
@@ -798,6 +942,9 @@ function updateOrbit3D(data) {
     try {
         clearGroup(orbitGroup);
         clearGroup(eqPlaneGroup);
+        coverage3DGroup.visible = false;
+        coverageConeGroup.visible = false;
+        coverageLayer.clearLayers();
 
         const { orbit_3d, orbit_anim, orbital_elements, num_orbits } = data;
         const semiMajor = orbital_elements.semi_major_axis;
@@ -1153,6 +1300,14 @@ function animate(timestamp) {
         if (leafletSatMarker2D) {
             const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
             leafletSatMarker2D.setLatLng([lat, lon]);
+        }
+        // Coverage footprint (after earthGroup rotation is set)
+        if (hasOrbit) {
+            earthGroup.updateMatrixWorld();
+            const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
+            const dist = Math.sqrt(eciX * eciX + eciY * eciY + eciZ * eciZ);
+            const alt = dist - R_EARTH;
+            if (alt > 0) updateCoverage(lat, lon, alt, eciX, eciY, eciZ, thetaGP);
         }
 
         // Animate 2D terminator — sync with 3D Earth rotation
