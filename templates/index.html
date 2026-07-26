@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orbit Visualization 轨道可视化 - 3D + Mercator</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif; background: #0f0f1a; color: #ddd; overflow: hidden; }
+
+#app { display: flex; height: 100vh; }
+
+#sidebar {
+    width: 340px; min-width: 340px; background: #1a1a2e;
+    display: flex; flex-direction: column; padding: 16px;
+    border-right: 1px solid #2a2a4a; overflow-y: auto;
+}
+#sidebar h2 { font-size: 1.2em; color: #e0e0ff; margin-bottom: 2px; text-align: center; }
+#sidebar .subtitle { font-size: 0.68em; color: #777; text-align: center; margin-bottom: 12px; line-height: 1.4; }
+
+.form-group { margin-bottom: 9px; }
+.form-group label { display: block; font-size: 0.76em; color: #aab; margin-bottom: 2px; line-height: 1.35; }
+.form-group label .cn { color: #ccd; }
+.form-group label .en { color: #889; font-size: 0.92em; margin-left: 2px; }
+.form-group input {
+    width: 100%; padding: 6px 8px; background: #252540; border: 1px solid #3a3a5a;
+    color: #eee; border-radius: 4px; font-size: 0.85em; outline: none;
+}
+.form-group input:focus { border-color: #5a7aff; }
+.form-group textarea {
+    width: 100%; padding: 6px 8px; background: #252540; border: 1px solid #3a3a5a;
+    color: #eee; border-radius: 4px; font-size: 0.72em; outline: none;
+    font-family: 'Consolas', 'Courier New', monospace; resize: vertical;
+}
+.form-group textarea:focus { border-color: #5a7aff; }
+#btnParseTLE {
+    width: 100%; padding: 6px; margin-top: 4px;
+    background: #3a4a5a; color: #ccc; border: 1px solid #4a5a6a; border-radius: 4px;
+    font-size: 0.78em; cursor: pointer;
+}
+#btnParseTLE:hover { background: #4a5a6a; color: #fff; }
+
+#btnCompute {
+    width: 100%; padding: 9px; margin-top: 4px;
+    background: #4a5aff; color: #fff; border: none; border-radius: 4px;
+    font-size: 0.88em; cursor: pointer; font-weight: 600; letter-spacing: 0.5px;
+    transition: background 0.2s;
+}
+#btnCompute:hover { background: #5b6bff; }
+#btnCompute:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.presets { margin-top: 12px; }
+.presets h4 { font-size: 0.73em; color: #888; margin-bottom: 6px; letter-spacing: 1px; }
+.preset-btns { display: flex; flex-wrap: wrap; gap: 5px; }
+.preset-btn {
+    padding: 4px 9px; font-size: 0.7em; background: #2a2a45; color: #aac;
+    border: 1px solid #3a3a5a; border-radius: 3px; cursor: pointer;
+    transition: background 0.15s;
+}
+.preset-btn:hover { background: #3a3a5a; color: #fff; }
+
+#results {
+    margin-top: 12px; padding: 10px; background: #12122a; border-radius: 6px;
+    font-size: 0.75em;
+}
+#results h4 { font-size: 0.76em; color: #888; margin-bottom: 6px; letter-spacing: 1px; }
+#results .row { display: flex; justify-content: space-between; padding: 2px 0; }
+#results .row .label { color: #999; }
+#results .row .value { color: #ccf; font-weight: 600; }
+
+#status { margin-top: 8px; font-size: 0.65em; color: #666; min-height: 1.2em; text-align: center; }
+
+#main { flex: 1; display: flex; flex-direction: column; }
+#globe3d { flex: 1.2; min-height: 0; position: relative; background: #080818; }
+#globe3d canvas { display: block; }
+
+#tileBar {
+    height: 32px; min-height: 32px; background: #1a1a2e;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    border-top: 1px solid #2a2a4a; border-bottom: 1px solid #2a2a4a;
+    padding: 0 12px;
+}
+#tileBar span { font-size: 0.65em; color: #777; }
+#tileBar button {
+    padding: 2px 8px; font-size: 0.65em; border: 1px solid #3a3a5a;
+    background: #252540; color: #aaa; border-radius: 3px; cursor: pointer;
+    font-family: inherit;
+}
+#tileBar button.active { background: #4a5aff; color: #fff; border-color: #4a5aff; }
+#tileBar button:hover:not(.active) { background: #3a3a5a; color: #fff; }
+#tileBar input[type=range] {
+    width: 80px; height: 16px; accent-color: #4a5aff; margin: 0 4px;
+}
+#tileBar .speed-label { font-size: 0.6em; color: #888; min-width: 36px; text-align: center; }
+
+#progressBar {
+    height: 30px; min-height: 30px; background: #1a1a2e;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    border-top: 1px solid #2a2a4a; padding: 0 16px;
+}
+#progressBar .prog-label { font-size: 0.6em; color: #888; min-width: 48px; text-align: center; }
+#progressBar input[type=range] { flex: 1; max-width: 500px; height: 12px; accent-color: #4a5aff; cursor: pointer; }
+#btnPause {
+    font-size: 0.65em; background: #252540; color: #aaa; border: 1px solid #3a3a5a;
+    border-radius: 3px; cursor: pointer; padding: 2px 8px; line-height: 1.2;
+}
+
+#map2d { flex: 1; min-height: 250px; position: relative; }
+.leaflet-container { background: #1a2a3a; }
+.leaflet-control-zoom a { background: #252540 !important; color: #ccc !important; border-color: #3a3a5a !important; }
+.leaflet-control-zoom a:hover { background: #3a3a5a !important; }
+.leaflet-control-attribution { background: rgba(26,26,46,0.8) !important; color: #888 !important; font-size: 0.6em !important; }
+.leaflet-control-attribution a { color: #88a !important; }
+
+#loading {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+    color: #999; font-size: 0.85em; z-index: 10; pointer-events: none;
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+    <div id="sidebar">
+        <h2>&#127758; Orbit Visualizer 轨道可视化</h2>
+        <div class="subtitle">3D Globe + Mercator Ground Track<br>3D地球 · 墨卡托投影地面轨迹</div>
+
+        <form id="orbitForm" autocomplete="off">
+            <div class="form-group">
+                <label><span class="cn">近地点高度</span> <span class="en">Perigee Altitude (km)</span></label>
+                <input type="number" id="perigee" value="400" step="any" required>
+            </div>
+            <div class="form-group">
+                <label><span class="cn">远地点高度</span> <span class="en">Apogee Altitude (km)</span></label>
+                <input type="number" id="apogee" value="400" step="any" required>
+            </div>
+            <div class="form-group">
+                <label><span class="cn">轨道倾角</span> <span class="en">Inclination (deg, 0–180)</span></label>
+                <input type="number" id="inclination" value="51.6" step="any" min="0" max="180" required>
+            </div>
+            <div class="form-group">
+                <label><span class="cn">升交点赤经</span> <span class="en">RAAN (deg)</span></label>
+                <input type="number" id="raan" value="0" step="any" required>
+            </div>
+            <div class="form-group">
+                <label><span class="cn">近地点幅角</span> <span class="en">Argument of Perigee (deg)</span></label>
+                <input type="number" id="argPerigee" value="0" step="any">
+            </div>
+            <div class="form-group">
+                <label><span class="cn">地面轨迹圈数</span> <span class="en">Ground-Track Orbits</span></label>
+                <input type="number" id="numOrbits" value="5" step="1" min="1" max="20">
+            </div>
+            <div class="form-group" style="margin-bottom:4px;">
+                <label><span class="cn">轨道历元 (UTC)</span> <span class="en">Orbit Epoch</span></label>
+                <input type="text" id="epochInput" placeholder="2026-06-15 12:00:00">
+            </div>
+            <div class="form-group">
+                <label><span class="cn">模拟开始时间 (UTC)</span> <span class="en">Sim Start</span></label>
+                <div style="display:flex; gap:4px;">
+                    <input type="date" id="simDate" style="flex:1.5;">
+                    <input type="time" id="simTimeInput" value="12:00:00" step="1" style="flex:1;">
+                </div>
+            </div>
+            <div class="form-group">
+                <label><span class="cn">快速加载 TLE</span> <span class="en">Quick Load TLE</span></label>
+                <div style="display:flex; gap:4px;">
+                    <select id="quickTleSelect" style="flex:1; padding:5px 6px; background:#252540; border:1px solid #3a3a5a; color:#eee; border-radius:4px; font-size:0.78em;">
+                        <option value="25544">ISS 国际空间站</option>
+                        <option value="48274">CSS 天宫空间站</option>
+                        <option value="20580">Hubble 哈勃望远镜</option>
+                        <option value="33591">NOAA 19 气象卫星</option>
+                        <option value="24876">GPS BIIR-2 导航星</option>
+                    </select>
+                    <button type="button" id="btnQuickLoad" style="padding:5px 10px; background:#3a4a5a; color:#ccc; border:1px solid #4a5a6a; border-radius:4px; font-size:0.76em; cursor:pointer;">Load</button>
+                </div>
+            </div>
+            <div class="form-group">
+                <label><span class="cn">粘贴 TLE</span> <span class="en">Paste TLE Data</span></label>
+                <textarea id="tleInput" rows="2" placeholder="CSS (TIANHE-1)&#10;1 48274U 21035A   26165.00000000 ...&#10;2 48274 041.4694 341.3988 0007573 ..."></textarea>
+                <button type="button" id="btnParseTLE">Parse TLE 解析</button>
+            </div>
+            <button type="submit" id="btnCompute">Compute 计算轨道</button>
+        </form>
+
+        <div class="presets">
+            <h4>Quick Presets 快捷预设</h4>
+            <div class="preset-btns">
+                <button class="preset-btn" data-preset="iss">ISS 国际空间站</button>
+                <button class="preset-btn" data-preset="css">CSS 天宫空间站</button>
+                <button class="preset-btn" data-preset="geo">GEO 地球同步</button>
+                <button class="preset-btn" data-preset="molniya">Molniya 闪电</button>
+                <button class="preset-btn" data-preset="gps">GPS 导航星</button>
+                <button class="preset-btn" data-preset="polar">Polar 极轨</button>
+            </div>
+        </div>
+
+        <div id="results">
+            <h4>Orbital Elements 轨道参数</h4>
+            <div id="resultsContent" style="color:#666;">Press Compute to see results<br>点击"计算轨道"查看结果</div>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <div id="main">
+        <div id="globe3d">
+            <div id="loading">Loading 3D Engine...<br>正在加载3D引擎...</div>
+        </div>
+        <div id="progressBar">
+            <button id="btnPause" title="Pause/Resume">&#9646;&#9646;</button>
+            <input type="range" id="progSlider" min="0" max="1000" value="0" step="1">
+            <span class="prog-label" id="progTimeLabel" style="min-width:280px;text-align:center;font-family:monospace;font-size:0.65em;">T+00:00:00 / ----</span>
+        </div>
+<div id="tileBar">
+    <span>Map 地图:</span>
+    <button class="tile-btn active" data-tile="satellite">Satellite 卫星</button>
+    <span style="margin-left:16px;">Speed 速度:</span>
+            <input type="range" id="speedSlider" min="2" max="30" value="10" step="1">
+            <span class="speed-label" id="speedLabel">10s</span>
+        </div>
+        <div id="map2d"></div>
+    </div>
+</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
+    }
+}
+</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const R_EARTH = 6378.137;
+const OMEGA_E = 7.2921159e-5;
+
+function setStatus(msg) {
+    const el = document.getElementById('status');
+    if (el) { el.textContent = msg; console.log('[status]', msg); }
+}
+
+const globeContainer = document.getElementById('globe3d');
+const loadingEl = document.getElementById('loading');
+const map2dEl = document.getElementById('map2d');
+const form = document.getElementById('orbitForm');
+const btnCompute = document.getElementById('btnCompute');
+const resultsContent = document.getElementById('resultsContent');
+const presetBtns = document.querySelectorAll('.preset-btn');
+const speedSlider = document.getElementById('speedSlider');
+const speedLabel = document.getElementById('speedLabel');
+const progSlider = document.getElementById('progSlider');
+const progTimeLabel = document.getElementById('progTimeLabel');
+
+let animSpeedSec = 10;
+let isScrubbing = false;
+let currentEpoch = null;
+
+function formatUtc(date) {
+    return date.toISOString().replace('T', ' ').substring(0, 19);
+}
+
+function parseEpochInput(str) {
+    if (!str || !str.trim()) return null;
+    const d = new Date(str.trim() + 'Z');
+    if (!isNaN(d.getTime())) return d;
+    const m = str.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/);
+    if (m) {
+        const utc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+        if (!isNaN(utc)) return new Date(utc);
+    }
+    return null;
+}
+
+function formatElapsed(sec) {
+    sec = Math.max(0, sec);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    return 'T+' + String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+speedSlider.addEventListener('input', () => {
+    animSpeedSec = parseInt(speedSlider.value);
+    speedLabel.textContent = animSpeedSec + 's';
+});
+
+progSlider.addEventListener('input', () => {
+    isScrubbing = true;
+});
+
+progSlider.addEventListener('change', () => {
+    // Resume auto-animation from scrubbed position
+    const frac = parseInt(progSlider.value) / 1000;
+    animStartTime = performance.now() / 1000 - frac * animSpeedSec * numOrbitsAnim;
+    isScrubbing = false;
+});
+
+let isPaused = false;
+const btnPause = document.getElementById('btnPause');
+btnPause.addEventListener('click', () => {
+    isPaused = !isPaused;
+    btnPause.innerHTML = isPaused ? '&#9654;' : '&#9646;&#9646;';
+    if (!isPaused) {
+        // Resume: reset timer so animation continues from current position
+        const frac = parseInt(progSlider.value) / 1000;
+        animStartTime = performance.now() / 1000 - frac * animSpeedSec * numOrbitsAnim;
+    }
+});
+
+// ── TILE LAYERS ──
+const tileProviders = {
+    satellite: {
+        url: '/static/tiles/esri/{z}/{x}/{y}.png',
+        attr: '&copy; Esri (offline)',
+        maxZoom: 5, minZoom: 0
+    }
+};
+
+let activeTileLayer = null;
+
+// ── Leaflet map ──
+const leafletMap = L.map(map2dEl, {
+    zoomControl: false, attributionControl: true,
+    scrollWheelZoom: false, dragging: false, doubleClickZoom: false,
+    touchZoom: false, keyboard: false,
+    maxBounds: [[-90, -180], [90, 180]],
+    maxBoundsViscosity: 1.0, zoomSnap: 0.5
+}).setView([0, 0], 2);
+
+function setTileLayer(key) {
+    const prov = tileProviders[key];
+    if (!prov) return;
+    if (activeTileLayer) leafletMap.removeLayer(activeTileLayer);
+    activeTileLayer = L.tileLayer(prov.url, {
+        maxZoom: prov.maxZoom,
+        minZoom: prov.minZoom != null ? prov.minZoom : 2,
+        attribution: prov.attr,
+        noWrap: true
+    }).addTo(leafletMap);
+    document.querySelectorAll('.tile-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.querySelector(`.tile-btn[data-tile="${key}"]`);
+    if (btn) btn.classList.add('active');
+    leafletMap.invalidateSize();
+}
+
+setTileLayer('satellite');
+
+document.querySelectorAll('.tile-btn').forEach(btn => {
+    btn.addEventListener('click', () => setTileLayer(btn.dataset.tile));
+});
+
+let groundTrackLayer = L.layerGroup().addTo(leafletMap);
+let terminatorLayer = L.layerGroup().addTo(leafletMap);
+let leafletStartMarker = null;
+let leafletSatMarker2D = null;
+
+// ── Three.js setup ──
+const scene = new THREE.Scene();
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(globeContainer.clientWidth, globeContainer.clientHeight);
+globeContainer.appendChild(renderer.domElement);
+
+const camera = new THREE.PerspectiveCamera(45, globeContainer.clientWidth / Math.max(globeContainer.clientHeight, 1), 10, 500000);
+camera.position.set(18000, 12000, 15000);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.minDistance = R_EARTH * 1.3;
+controls.maxDistance = 300000;
+controls.target.set(0, 0, 0);
+
+scene.add(new THREE.AmbientLight(0x334466, 0.5));
+const sunLight = new THREE.DirectionalLight(0xffffff, 2.0);
+sunLight.position.set(100000, 0, 0);
+scene.add(sunLight);
+const fillLight = new THREE.DirectionalLight(0x4488cc, 0.3);
+fillLight.position.set(-20000, 5000, -20000);
+scene.add(fillLight);
+
+// Stars
+const starsGeom = new THREE.BufferGeometry();
+const starPositions = new Float32Array(1200 * 3);
+for (let i = 0; i < 1200; i++) {
+    const r = 120000 + Math.random() * 80000;
+    const th = Math.random() * Math.PI * 2;
+    const ph = Math.acos(2 * Math.random() - 1);
+    starPositions[i * 3] = r * Math.sin(ph) * Math.cos(th);
+    starPositions[i * 3 + 1] = r * Math.sin(ph) * Math.sin(th);
+    starPositions[i * 3 + 2] = r * Math.cos(ph);
+}
+starsGeom.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+scene.add(new THREE.Points(starsGeom, new THREE.PointsMaterial({ color: 0xffffff, size: 80, sizeAttenuation: true })));
+
+// Earth group (rotates for animation)
+const earthGroup = new THREE.Group();
+const earthGeom = new THREE.SphereGeometry(R_EARTH, 96, 64);
+const earthMat = new THREE.MeshPhongMaterial({ color: 0x2E86C1, shininess: 5, specular: 0x111122 });
+const earth = new THREE.Mesh(earthGeom, earthMat);
+earthGroup.add(earth);
+scene.add(earthGroup);
+
+const texLoader = new THREE.TextureLoader();
+texLoader.load(
+    'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
+    (tex) => { earthMat.map = tex; earthMat.color.set(0xffffff); earthMat.needsUpdate = true; },
+    undefined,
+    () => { earthMat.color.set(0x2E86C1); earthMat.needsUpdate = true; }
+);
+
+// Equator ring
+function makeRing(radius, color, dashSize) {
+    const pts = [];
+    const n = 300;
+    for (let i = 0; i <= n; i++) {
+        const a = (i / n) * Math.PI * 2;
+        pts.push(new THREE.Vector3(radius * Math.cos(a), 0, radius * Math.sin(a)));
+    }
+    const g = new THREE.BufferGeometry().setFromPoints(pts);
+    if (dashSize) {
+        const m = new THREE.LineDashedMaterial({ color, dashSize, gapSize: dashSize * 0.7 });
+        const l = new THREE.Line(g, m);
+        l.computeLineDistances();
+        return l;
+    }
+    return new THREE.Line(g, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 }));
+}
+scene.add(makeRing(R_EARTH * 1.002, 0xffffff, 180));
+
+// Equatorial reference plane
+const eqPlaneGeom = new THREE.CircleGeometry(R_EARTH * 1.001, 64);
+eqPlaneGeom.rotateX(-Math.PI / 2);
+const eqPlaneMat = new THREE.MeshBasicMaterial({
+    color: 0x4488cc, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false
+});
+scene.add(new THREE.Mesh(eqPlaneGeom, eqPlaneMat));
+
+// Axis label sprites
+function makeLabel(text, position, color) {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = color;
+    ctx.font = 'bold 36px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 64, 32);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.minFilter = THREE.LinearFilter;
+    const spriteMat = new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false });
+    const sprite = new THREE.Sprite(spriteMat);
+    sprite.position.copy(position);
+    sprite.scale.set(R_EARTH * 0.5, R_EARTH * 0.25, 1);
+    return sprite;
+}
+scene.add(makeLabel('X', new THREE.Vector3(R_EARTH * 1.8, 0, 0), '#ff6666'));
+scene.add(makeLabel('Y  North', new THREE.Vector3(0, R_EARTH * 1.8, 0), '#66ff66'));
+scene.add(makeLabel('Z', new THREE.Vector3(0, 0, R_EARTH * 1.8), '#6666ff'));
+
+const orbitGroup = new THREE.Group();
+scene.add(orbitGroup);
+const eqPlaneGroup = new THREE.Group();
+scene.add(eqPlaneGroup);
+
+// ── Animation state ──
+let orbitCurve3D = null;
+let orbitEciX = [];
+let orbitEciY = [];
+let orbitEciZ = [];
+let orbitPeriodSec = 6000;
+let numOrbitsAnim = 1;
+let animStartTime = 0;
+let hasOrbit = false;
+
+// Glow sprite texture
+function createGlowTexture(color, size) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+    gradient.addColorStop(0, color);
+    gradient.addColorStop(0.2, color);
+    gradient.addColorStop(1, 'transparent');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    return tex;
+}
+
+const glowTex = createGlowTexture('rgba(255,255,100,1)', 128);
+
+let satMarkerGroup = null;
+
+// ── Sun / Terminator ──
+function getSunECI(date) {
+    const start = new Date(date.getFullYear(), 0, 0);
+    const dayOfYear = Math.floor((date - start) / 86400000);
+    const lambda = ((dayOfYear - 80) * 360 / 365) * Math.PI / 180;
+    const epsilon = 23.44 * Math.PI / 180;
+    const ra = Math.atan2(Math.cos(epsilon) * Math.sin(lambda), Math.cos(lambda));
+    const dec = Math.asin(Math.sin(epsilon) * Math.sin(lambda));
+    return {
+        ra: ra * 180 / Math.PI,
+        dec: dec * 180 / Math.PI,
+        dir: new THREE.Vector3(
+            Math.cos(dec) * Math.cos(ra),
+            Math.sin(dec),
+            -Math.cos(dec) * Math.sin(ra)
+        )
+    };
+}
+
+function getGST(date) {
+    const jd = date.getTime() / 86400000 + 2440587.5;
+    const t = (jd - 2451545.0) / 36525.0;
+    const gst = 280.46061837 + 360.98564736629 * (jd - 2451545.0) + 0.000387933 * t * t - t * t * t / 38710000;
+    return ((gst % 360) + 360) % 360;
+}
+
+let sunRA = 0;
+let sunDec = 0;
+
+function setSunData(date) {
+    const sun = getSunECI(date);
+    sunRA = sun.ra;
+    sunDec = sun.dec;
+    sunLight.position.copy(sun.dir.clone().multiplyScalar(100000));
+}
+
+function splitLonWrap(points) {
+    if (points.length < 2) return [points];
+    const segments = [];
+    let seg = [points[0]];
+    for (let i = 1; i < points.length; i++) {
+        const lonDiff = points[i][1] - points[i - 1][1];
+        if (Math.abs(lonDiff) > 180) {
+            const prev = points[i - 1], curr = points[i];
+            const boundLon = prev[1] > 0 ? 180 : -180;
+            const lonP = prev[1], lonC = lonDiff > 0 ? curr[1] - 360 : curr[1] + 360;
+            const frac = (boundLon - lonP) / (lonC - lonP);
+            const lat = prev[0] + frac * (curr[0] - prev[0]);
+            seg.push([lat, boundLon]);
+            segments.push(seg);
+            seg = [[lat, -boundLon], curr];
+        } else {
+            seg.push(points[i]);
+        }
+    }
+    if (seg.length > 0) segments.push(seg);
+    return segments;
+}
+
+function updateTerminatorDynamic(gstNow) {
+    terminatorLayer.clearLayers();
+    const sunLon = ((sunRA - gstNow + 180) % 360 + 360) % 360 - 180;
+    const decRad = sunDec * Math.PI / 180;
+    const evening = [];
+    const morning = [];
+
+    for (let lat = -90; lat <= 90; lat += 0.5) {
+        const phi = lat * Math.PI / 180;
+        const tpd = Math.tan(phi) * Math.tan(decRad);
+        if (Math.abs(tpd) <= 1) {
+            const H = Math.acos(-tpd) * 180 / Math.PI;
+            const lonE = ((sunLon - H + 180) % 360 + 360) % 360 - 180;
+            const lonM = ((sunLon + H + 180) % 360 + 360) % 360 - 180;
+            evening.push([lat, lonE]);
+            morning.push([lat, lonM]);
+        }
+    }
+
+    if (evening.length > 1) {
+        // Evening terminator: day→night eastward, night is west → solid at exact, dashed west
+        for (const seg of splitLonWrap(evening)) {
+            if (seg.length > 1) {
+                L.polyline(seg, { color: '#ffaa00', weight: 3, opacity: 1 }).addTo(terminatorLayer);
+                const dashed = seg.map(([lat, lon]) => [lat, lon - 3]);
+                for (const segD of splitLonWrap(dashed)) {
+                    if (segD.length > 1) L.polyline(segD, { color: '#66ddff', weight: 2, opacity: 0.85, dashArray: '5,6' }).addTo(terminatorLayer);
+                }
+            }
+        }
+        // Morning terminator: night→day eastward, night is east → solid at exact, dashed east
+        for (const seg of splitLonWrap(morning)) {
+            if (seg.length > 1) {
+                L.polyline(seg, { color: '#ffaa00', weight: 3, opacity: 1 }).addTo(terminatorLayer);
+                const dashed = seg.map(([lat, lon]) => [lat, lon + 3]);
+                for (const segD of splitLonWrap(dashed)) {
+                    if (segD.length > 1) L.polyline(segD, { color: '#66ddff', weight: 2, opacity: 0.85, dashArray: '5,6' }).addTo(terminatorLayer);
+                }
+            }
+        }
+    }
+}
+
+// Initialize epoch and sim time
+const simDateInput = document.getElementById('simDate');
+const simTimeInput = document.getElementById('simTimeInput');
+let lastSunDate = '';
+
+function getSimTime() {
+    const d = simDateInput.value;
+    const t = simTimeInput.value;
+    return d && t ? new Date(d + 'T' + t + 'Z') : new Date();
+}
+
+function jumpToSimTime() {
+    const st = getSimTime();
+    if (isNaN(st.getTime())) return;
+    if (!hasOrbit) return;
+    isPaused = true;
+    btnPause.innerHTML = '\u25B6';
+    progSlider.value = 0;
+    isScrubbing = false;
+    progTimeLabel.textContent = 'propagating...';
+    let M_new;
+    if (hasTLE) {
+        const deltaDays = (st - epochDate) / 86400000;
+        M_new = ((M0_at_epoch + nRevPerDay * deltaDays * 360) % 360 + 360) % 360;
+    } else {
+        const deltaSec = (st.getTime() - currentEpoch.getTime()) / 1000;
+        M_new = ((deltaSec / orbitPeriodSec * 360) % 360 + 360) % 360;
+    }
+    currentEpoch = st;
+    recomputeOrbitWithAnomaly(M_new);
+    setSunData(st);
+    lastSunDate = st.toISOString().split('T')[0];
+}
+
+const now = new Date();
+document.getElementById('epochInput').value = formatUtc(now);
+currentEpoch = now;
+simDateInput.value = now.toISOString().split('T')[0];
+simTimeInput.value = now.toISOString().split('T')[1].substring(0, 8);
+setSunData(now);
+updateTerminatorDynamic(0);
+
+document.getElementById('epochInput').addEventListener('change', (e) => {
+    const parsed = parseEpochInput(e.target.value.trim());
+    if (parsed) currentEpoch = parsed;
+});
+
+simDateInput.addEventListener('change', () => jumpToSimTime());
+simTimeInput.addEventListener('change', () => jumpToSimTime());
+
+// ── TLE parser ──
+let hasTLE = false;
+let M0_at_epoch = 0;
+let nRevPerDay = 0;
+let epochDate = null;
+let tOffset = 0;
+
+function parseTLE(text) {
+    const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l);
+    let line1, line2;
+    if (lines.length === 3) { line1 = lines[1]; line2 = lines[2]; }
+    else if (lines.length === 2) { line1 = lines[0]; line2 = lines[1]; }
+    else throw new Error('Need 2 or 3 TLE lines');
+    if (!line1.startsWith('1 ') || !line2.startsWith('2 ')) throw new Error('Invalid TLE format');
+
+    const inclination = parseFloat(line2.substring(8, 16));
+    const raan = parseFloat(line2.substring(17, 25));
+    const e = parseFloat('0.' + line2.substring(26, 33));
+    const argPerigee = parseFloat(line2.substring(34, 42));
+    const meanAnomaly = parseFloat(line2.substring(43, 51));
+    const meanMotion = parseFloat(line2.substring(52, 63));
+
+    const epochStr = line1.substring(18, 32);
+    const epochYear = parseInt('20' + epochStr.substring(0, 2));
+    const epochDay = parseFloat(epochStr.substring(2));
+    const epochDateObj = new Date(Date.UTC(epochYear, 0, 1));
+    epochDateObj.setUTCDate(epochDateObj.getUTCDate() + Math.floor(epochDay) - 1);
+    const dayFrac = epochDay - Math.floor(epochDay);
+    epochDateObj.setUTCHours(Math.floor(dayFrac * 24));
+    epochDateObj.setUTCMinutes(Math.floor((dayFrac * 24) % 1 * 60));
+
+    const MU = 398600.4418;
+    const RE = 6378.137;
+    const nRadPerSec = meanMotion * 2 * Math.PI / 86400;
+    const a = Math.pow(MU / (nRadPerSec * nRadPerSec), 1 / 3);
+    const hp = a * (1 - e) - RE;
+    const ha = a * (1 + e) - RE;
+
+    return { perigee: hp, apogee: ha, inclination, raan, argPerigee, meanAnomaly, meanMotion, e, epoch: epochDateObj, a };
+}
+
+function recomputeOrbitWithAnomaly(M) {
+    const perigee = parseFloat(document.getElementById('perigee').value) || 400;
+    const apogee = parseFloat(document.getElementById('apogee').value) || 400;
+    const inclination = parseFloat(document.getElementById('inclination').value) || 51.6;
+    const raan = parseFloat(document.getElementById('raan').value) || 0;
+    const argPerigee = parseFloat(document.getElementById('argPerigee').value) || 0;
+    const numOrbits = parseInt(document.getElementById('numOrbits').value, 10) || 5;
+    computeOrbit({ perigee, apogee, inclination, raan, arg_perigee: argPerigee, num_orbits: numOrbits, mean_anomaly: M });
+}
+
+document.getElementById('btnParseTLE').addEventListener('click', () => {
+    const text = document.getElementById('tleInput').value.trim();
+    if (!text) { alert('Please paste TLE data'); return; }
+    parseAndApplyTLE(text);
+});
+
+document.getElementById('btnQuickLoad').addEventListener('click', async () => {
+    const catnr = document.getElementById('quickTleSelect').value;
+    const btn = document.getElementById('btnQuickLoad');
+    btn.textContent = '...';
+    btn.disabled = true;
+    try {
+        const resp = await fetch('/api/fetch-tle?catnr=' + catnr);
+        if (!resp.ok) { alert('Failed to fetch TLE'); return; }
+        const text = await resp.text();
+        document.getElementById('tleInput').value = text;
+        parseAndApplyTLE(text);
+    } catch (e) {
+        alert('Fetch error: ' + e.message);
+    } finally {
+        btn.textContent = 'Load';
+        btn.disabled = false;
+    }
+});
+
+function parseAndApplyTLE(text) {
+    const tle = parseTLE(text);
+    document.getElementById('perigee').value = tle.perigee.toFixed(1);
+    document.getElementById('apogee').value = tle.apogee.toFixed(1);
+    document.getElementById('inclination').value = tle.inclination.toFixed(4);
+    document.getElementById('raan').value = tle.raan.toFixed(4);
+    document.getElementById('argPerigee').value = tle.argPerigee.toFixed(4);
+    document.getElementById('numOrbits').value = 3;
+    hasTLE = true;
+    M0_at_epoch = tle.meanAnomaly;
+    nRevPerDay = tle.meanMotion;
+    epochDate = tle.epoch;
+    currentEpoch = tle.epoch;
+    document.getElementById('epochInput').value = formatUtc(tle.epoch);
+    simDateInput.value = tle.epoch.toISOString().split('T')[0];
+    simTimeInput.value = tle.epoch.toISOString().split('T')[1].substring(0, 8);
+    setSunData(tle.epoch);
+    updateTerminatorDynamic(0);
+    recomputeOrbitWithAnomaly(tle.meanAnomaly);
+}
+
+const orbitInputs = ['perigee', 'apogee', 'inclination', 'raan', 'argPerigee'];
+orbitInputs.forEach(id => {
+    document.getElementById(id).addEventListener('input', () => { hasTLE = false; });
+});
+
+// ── Helpers ──
+function eciToThree(eciX, eciY, eciZ) {
+    // ECI (x, y, z) -> Three.js (x, z, -y) preserves right-hand rule
+    return new THREE.Vector3(eciX, eciZ, -eciY);
+}
+
+function clearGroup(group) {
+    while (group.children.length > 0) {
+        const child = group.children[0];
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) {
+            (Array.isArray(child.material) ? child.material : [child.material]).forEach(m => { try { m.dispose(); } catch(e) {} });
+        }
+        group.remove(child);
+    }
+}
+
+function getEciPosition(fraction) {
+    if (orbitEciX.length === 0) return [0, 0, 0];
+    const idx = fraction * (orbitEciX.length - 1);
+    const i0 = Math.floor(idx);
+    const i1 = Math.min(i0 + 1, orbitEciX.length - 1);
+    const t = idx - i0;
+    return [
+        orbitEciX[i0] + (orbitEciX[i1] - orbitEciX[i0]) * t,
+        orbitEciY[i0] + (orbitEciY[i1] - orbitEciY[i0]) * t,
+        orbitEciZ[i0] + (orbitEciZ[i1] - orbitEciZ[i0]) * t,
+    ];
+}
+
+function eciToLatLon(eciX, eciY, eciZ, theta) {
+    const x_ecef = eciX * Math.cos(theta) + eciY * Math.sin(theta);
+    const y_ecef = -eciX * Math.sin(theta) + eciY * Math.cos(theta);
+    const z_ecef = eciZ;
+    const r_xy = Math.sqrt(x_ecef * x_ecef + y_ecef * y_ecef);
+    const lat = Math.atan2(z_ecef, r_xy) * 180 / Math.PI;
+    const lon = Math.atan2(y_ecef, x_ecef) * 180 / Math.PI;
+    return [lat, lon];
+}
+
+// ── Update 3D ──
+function updateOrbit3D(data) {
+    try {
+        clearGroup(orbitGroup);
+        clearGroup(eqPlaneGroup);
+
+        const { orbit_3d, orbit_anim, orbital_elements, num_orbits } = data;
+        const semiMajor = orbital_elements.semi_major_axis;
+        const axisLen = semiMajor * 1.6;
+
+        // Store multi-orbit ECI data for animation
+        orbitEciX = orbit_anim.x;
+        orbitEciY = orbit_anim.y;
+        orbitEciZ = orbit_anim.z;
+        orbitPeriodSec = orbital_elements.period_min * 60;
+        numOrbitsAnim = num_orbits || 1;
+        const ma = orbital_elements.mean_anomaly || 0;
+        tOffset = ma * orbitPeriodSec / 360;
+        hasOrbit = true;
+
+        // Build orbit tube from single-orbit data
+        const orbitPts = [];
+        const count = orbit_3d.x.length;
+        for (let i = 0; i < count; i++) {
+            orbitPts.push(eciToThree(orbit_3d.x[i], orbit_3d.y[i], orbit_3d.z[i]));
+        }
+        if (orbitPts.length >= 2) {
+            orbitCurve3D = new THREE.CatmullRomCurve3(orbitPts, true);
+            const tubeGeom = new THREE.TubeGeometry(orbitCurve3D, Math.min(count, 300), 15, 8, true);
+            const tubeMat = new THREE.MeshPhongMaterial({ color: 0xe74c3c, emissive: 0x330000, shininess: 80 });
+            orbitGroup.add(new THREE.Mesh(tubeGeom, tubeMat));
+        }
+
+        // Satellite marker (glowing)
+        satMarkerGroup = new THREE.Group();
+        const coreGeom = new THREE.SphereGeometry(150, 32, 32);
+        const coreMat = new THREE.MeshPhongMaterial({ color: 0xffdd44, emissive: 0xff8800, emissiveIntensity: 2, shininess: 100 });
+        const core = new THREE.Mesh(coreGeom, coreMat);
+        satMarkerGroup.add(core);
+
+        const glowSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+            map: glowTex, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true,
+            transparent: true, opacity: 0.8
+        }));
+        glowSprite.scale.set(1000, 1000, 1);
+        satMarkerGroup.add(glowSprite);
+        orbitGroup.add(satMarkerGroup);
+
+        // Ground projection marker (child of earthGroup, rotates with Earth)
+        const oldGp = earthGroup.getObjectByName('groundProj');
+        if (oldGp) {
+            earthGroup.remove(oldGp);
+            if (oldGp.geometry) oldGp.geometry.dispose();
+            if (oldGp.material) {
+                (Array.isArray(oldGp.material) ? oldGp.material : [oldGp.material]).forEach(m => { try { m.dispose(); } catch(e) {} });
+            }
+        }
+        const gpGeom = new THREE.SphereGeometry(50, 16, 16);
+        const gpMat = new THREE.MeshPhongMaterial({ color: 0x00ffcc, emissive: 0x00aa88, emissiveIntensity: 1.5 });
+        const gpMarker = new THREE.Mesh(gpGeom, gpMat);
+        gpMarker.name = 'groundProj';
+        earthGroup.add(gpMarker);
+
+        // Coordinate axes
+        function addAxis(dir, color, length) {
+            const pts = [new THREE.Vector3(0, 0, 0), dir.clone().multiplyScalar(length)];
+            orbitGroup.add(new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints(pts),
+                new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.6 })
+            ));
+        }
+        addAxis(new THREE.Vector3(1, 0, 0), 0xff4444, axisLen);
+        addAxis(new THREE.Vector3(0, 1, 0), 0x44ff44, axisLen);
+        addAxis(new THREE.Vector3(0, 0, 1), 0x4444ff, axisLen);
+
+        for (let r = R_EARTH * 1.5; r <= semiMajor * 1.4; r += semiMajor * 0.35) {
+            eqPlaneGroup.add(makeRing(r, 0x334466, null));
+        }
+
+        const dist = semiMajor * 3.0;
+        if (dist > controls.minDistance) {
+            controls.target.set(0, 0, 0);
+            const cd = camera.position.clone().normalize();
+            if (cd.length() < 0.1) cd.set(0.6, 0.5, 0.7);
+            camera.position.copy(cd.multiplyScalar(dist));
+        }
+        controls.update();
+
+        // Reset animation timer
+        animStartTime = performance.now() / 1000;
+    } catch (e) {
+        setStatus('3D update error: ' + e.message);
+    }
+}
+
+// ── Update 2D ground track ──
+function updateGroundTrack2D(data) {
+    try {
+        groundTrackLayer.clearLayers();
+        if (leafletStartMarker) { leafletMap.removeLayer(leafletStartMarker); leafletStartMarker = null; }
+        if (leafletSatMarker2D) { leafletMap.removeLayer(leafletSatMarker2D); leafletSatMarker2D = null; }
+
+        const { segments } = data.ground_track;
+
+        const gstOffsetDeg = currentEpoch
+            ? ((getGST(currentEpoch) % 360) - OMEGA_E * tOffset * 180 / Math.PI + 360) % 360
+            : 0;
+
+        const allCoords = [];
+        segments.forEach(([lats, lons]) => {
+            for (let i = 0; i < lats.length; i++) {
+                allCoords.push([lats[i], ((lons[i] - gstOffsetDeg + 540) % 360) - 180]);
+            }
+        });
+        const splitSegs = splitLonWrap(allCoords);
+        splitSegs.forEach(seg => { if (seg.length > 0) L.polyline(seg, { color: '#E74C3C', weight: 2, opacity: 0.85 }).addTo(groundTrackLayer); });
+
+        // Animated satellite marker on 2D map
+        leafletSatMarker2D = L.circleMarker([0, 0], {
+            radius: 6, color: '#ffdd44', fillColor: '#ff8800', fillOpacity: 1, weight: 2
+        }).addTo(leafletMap).bindPopup('Satellite 航天器');
+
+        setTimeout(() => leafletMap.invalidateSize(), 100);
+    } catch (e) {
+        setStatus('2D update error: ' + e.message);
+    }
+}
+
+// ── Update results panel ──
+function updateResults(data) {
+    try {
+        const el = data.orbital_elements;
+        const gt = data.ground_track;
+        const z = data.orbit_3d.z;
+        const zMax = Math.max(...z.map(Math.abs));
+        // Sub-satellite point at epoch
+        const x0 = data.orbit_3d.x[0];
+        const y0 = data.orbit_3d.y[0];
+        const z0 = data.orbit_3d.z[0];
+        const r0 = Math.sqrt(x0 * x0 + y0 * y0 + z0 * z0);
+        const subLat = (Math.asin(z0 / r0) * 180 / Math.PI).toFixed(2);
+        let subLonStr = '--';
+        if (currentEpoch && !isNaN(currentEpoch.getTime())) {
+            const ra = Math.atan2(y0, x0) * 180 / Math.PI;
+            const gst = getGST(currentEpoch) % 360;
+            const subLon = ((ra - gst + 540) % 360 - 180).toFixed(2);
+            const lonVal = parseFloat(subLon);
+            subLonStr = Math.abs(lonVal).toFixed(2) + (lonVal >= 0 ? '°E' : '°W');
+        }
+        const rows = [
+            ['历元时刻星下点 Sub-sat pt @epoch', `(${subLat}°, ${subLonStr})`],
+            ['半长轴 Semi-major axis', `${el.semi_major_axis.toLocaleString()} km`],
+            ['偏心率 Eccentricity', `${el.eccentricity}`],
+            ['周期 Period', `${el.period_min.toLocaleString()} min`],
+            ['近地点高度 Perigee alt', `${el.perigee_alt.toLocaleString()} km`],
+            ['远地点高度 Apogee alt', `${el.apogee_alt.toLocaleString()} km`],
+            ['轨道面Z偏移 Orbit Z-offset', `${zMax.toFixed(4)} km (0=equatorial)`],
+        ];
+        if (gt.segments && gt.segments.length > 0) {
+            const seg0 = gt.segments[0];
+            const lats = seg0[0];
+            const lons = seg0[1];
+            const n = Math.min(3, lats.length);
+            const pts = [];
+            for (let i = 0; i < n; i++) pts.push(`(${lats[i].toFixed(1)}°,${lons[i].toFixed(1)}°)`);
+            rows.push(['地面轨迹样例 GT sample', pts.join(' ')]);
+        }
+        resultsContent.innerHTML = rows.map(([label, value]) =>
+            `<div class="row"><span class="label">${label}</span><span class="value">${value}</span></div>`
+        ).join('');
+    } catch (e) {
+        setStatus('Results update error: ' + e.message);
+    }
+}
+
+// ── API call ──
+async function computeOrbit(params) {
+    setStatus(`Computing: p=${params.perigee} a=${params.apogee} i=${params.inclination} raan=${params.raan} w=${params.arg_perigee} ...`);
+    btnCompute.disabled = true;
+    btnCompute.textContent = 'Computing 计算中...';
+    try {
+        const resp = await fetch('/api/compute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        });
+        if (!resp.ok) {
+            let errMsg = resp.statusText;
+            try { const err = await resp.json(); errMsg = err.error || errMsg; } catch(e) {}
+            alert('Error 错误: ' + errMsg);
+            setStatus('Error: ' + errMsg);
+            return;
+        }
+        const data = await resp.json();
+        setStatus('Rendering 渲染中...');
+        updateOrbit3D(data);
+        updateGroundTrack2D(data);
+        updateResults(data);
+        setStatus('Ready 就绪');
+    } catch (e) {
+        alert('Computation failed 计算失败: ' + e.message);
+        setStatus('Failed: ' + e.message);
+    } finally {
+        btnCompute.disabled = false;
+        btnCompute.textContent = 'Compute 计算轨道';
+    }
+}
+
+// ── Form handler ──
+form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    function getFloat(id, fallback) {
+        const v = parseFloat(document.getElementById(id).value);
+        return isNaN(v) ? fallback : v;
+    }
+    function getInt(id, fallback) {
+        const v = parseInt(document.getElementById(id).value, 10);
+        return isNaN(v) ? fallback : v;
+    }
+    const params = {
+        perigee: getFloat('perigee', 400),
+        apogee: getFloat('apogee', 400),
+        inclination: getFloat('inclination', 51.6),
+        raan: getFloat('raan', 0),
+        arg_perigee: getFloat('argPerigee', 0),
+        num_orbits: getInt('numOrbits', 5),
+    };
+    if (hasTLE) {
+        const st = getSimTime();
+        if (st && !isNaN(st.getTime())) {
+            const deltaDays = (st - epochDate) / 86400000;
+            const M = ((M0_at_epoch + nRevPerDay * deltaDays * 360) % 360 + 360) % 360;
+            params.mean_anomaly = M;
+            currentEpoch = st;
+        }
+    } else {
+        const epochStr = document.getElementById('epochInput').value.trim();
+        if (epochStr) {
+            const parsed = parseEpochInput(epochStr);
+            if (parsed) {
+                currentEpoch = parsed;
+                simDateInput.value = currentEpoch.toISOString().split('T')[0];
+                simTimeInput.value = currentEpoch.toISOString().split('T')[1].substring(0, 8);
+            }
+        }
+    }
+    computeOrbit(params);
+});
+
+// ── Presets ──
+const presets = {
+    iss:     { perigee: 408, apogee: 410, inclination: 51.6, raan: 0, arg_perigee: 0, num_orbits: 5 },
+    css:     { perigee: 340, apogee: 390, inclination: 41.5, raan: 0, arg_perigee: 0, num_orbits: 5 },
+    geo:     { perigee: 35786, apogee: 35786, inclination: 0, raan: 0, arg_perigee: 0, num_orbits: 1 },
+    molniya: { perigee: 500, apogee: 39800, inclination: 63.4, raan: 45, arg_perigee: 270, num_orbits: 3 },
+    gps:     { perigee: 20180, apogee: 20180, inclination: 55, raan: 0, arg_perigee: 0, num_orbits: 4 },
+    polar:   { perigee: 800, apogee: 800, inclination: 97.5, raan: 0, arg_perigee: 0, num_orbits: 6 },
+};
+
+presetBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const p = presets[btn.dataset.preset];
+        if (!p) return;
+        hasTLE = false;
+        document.getElementById('perigee').value = p.perigee;
+        document.getElementById('apogee').value = p.apogee;
+        document.getElementById('inclination').value = p.inclination;
+        document.getElementById('raan').value = p.raan;
+        document.getElementById('argPerigee').value = p.arg_perigee;
+        document.getElementById('numOrbits').value = p.num_orbits;
+        const epochVal = document.getElementById('epochInput').value.trim();
+        if (epochVal) {
+            const parsed = parseEpochInput(epochVal);
+            if (parsed) currentEpoch = parsed;
+        }
+        computeOrbit(p);
+    });
+});
+
+// ── Render loop with animation ──
+function animate(timestamp) {
+    requestAnimationFrame(animate);
+
+    // Update satellite animation
+    if (hasOrbit && orbitCurve3D) {
+        const nowSec = timestamp / 1000;
+        let fraction, simElapsed;
+        if (isScrubbing || isPaused) {
+            fraction = parseInt(progSlider.value) / 1000;
+        } else {
+            const totalAnimTime = animSpeedSec * numOrbitsAnim;
+            fraction = (nowSec - animStartTime) / totalAnimTime;
+            if (fraction >= 1) {
+                fraction = 1;
+                isPaused = true;
+                btnPause.innerHTML = '\u25B6';
+            }
+                progSlider.value = Math.round(fraction * 1000);
+            }
+            simElapsed = fraction * orbitPeriodSec * numOrbitsAnim;
+            const tSincePerigee = tOffset + simElapsed;
+
+            // Update time display
+            const elapsedStr = formatElapsed(tSincePerigee);
+            let utcStr = '----';
+            if (currentEpoch && !isNaN(currentEpoch.getTime())) {
+                const utcMs = currentEpoch.getTime() + (tSincePerigee - tOffset) * 1000;
+                const utcDate = new Date(utcMs);
+                utcStr = formatUtc(utcDate);
+                progTimeLabel.textContent = elapsedStr + ' / ' + utcStr + ' UTC';
+                const dateStr = utcDate.toISOString().split('T')[0];
+                if (dateStr !== lastSunDate) {
+                    setSunData(utcDate);
+                    lastSunDate = dateStr;
+                }
+            } else {
+                progTimeLabel.textContent = elapsedStr + ' / ' + utcStr;
+            }
+
+        // 3D satellite position (ECI inertial frame)
+        const [eciX, eciY, eciZ] = getEciPosition(fraction);
+        const satPos3 = eciToThree(eciX, eciY, eciZ);
+        if (satMarkerGroup) {
+            satMarkerGroup.position.copy(satPos3);
+        }
+
+        // Compute Earth rotation angle
+        let thetaGP;
+        if (currentEpoch) {
+            const gstRad = (getGST(currentEpoch) % 360) * Math.PI / 180;
+            thetaGP = gstRad + OMEGA_E * (tSincePerigee - tOffset);
+        } else {
+            thetaGP = OMEGA_E * tSincePerigee;
+        }
+
+        // Ground projection on Earth surface (in Earth's local ECEF frame)
+        const gpMarker = earthGroup.getObjectByName('groundProj');
+        if (gpMarker) {
+            const cosT = Math.cos(thetaGP);
+            const sinT = Math.sin(thetaGP);
+            const x_ecef = eciX * cosT + eciY * sinT;
+            const y_ecef = -eciX * sinT + eciY * cosT;
+            const z_ecef = eciZ;
+            const dist_ecef = Math.sqrt(x_ecef * x_ecef + y_ecef * y_ecef + z_ecef * z_ecef);
+            if (dist_ecef > R_EARTH * 1.001) {
+                const scale = R_EARTH / dist_ecef;
+                gpMarker.position.set(x_ecef * scale, z_ecef * scale, -y_ecef * scale);
+                gpMarker.visible = true;
+            } else {
+                gpMarker.visible = false;
+            }
+        }
+
+        // Rotate Earth eastward (syncs 3D terminator, gpMarker, and 2D marker)
+        earthGroup.rotation.y = thetaGP;
+
+        // 2D satellite marker on Leaflet
+        if (leafletSatMarker2D) {
+            const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
+            leafletSatMarker2D.setLatLng([lat, lon]);
+        }
+
+        // Animate 2D terminator — sync with 3D Earth rotation
+        const gstNow = ((earthGroup.rotation.y * 180 / Math.PI) % 360 + 360) % 360;
+        updateTerminatorDynamic(gstNow);
+    }
+
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+// ── Resize ──
+window.addEventListener('resize', () => {
+    const w = globeContainer.clientWidth;
+    const h = globeContainer.clientHeight;
+    if (w <= 0 || h <= 0) return;
+    renderer.setSize(w, h);
+    camera.aspect = w / Math.max(h, 1);
+    camera.updateProjectionMatrix();
+    leafletMap.invalidateSize();
+});
+
+// ── Start render loop ──
+// Ensure canvas has correct size before first render
+const doResize = () => {
+    const w = globeContainer.clientWidth;
+    const h = globeContainer.clientHeight;
+    if (w > 0 && h > 0) {
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+    }
+};
+doResize();
+requestAnimationFrame(animate);
+
+// ── Initial load ──
+loadingEl.style.display = 'none';
+setTimeout(() => {
+    leafletMap.invalidateSize();
+    computeOrbit({ perigee: 400, apogee: 400, inclination: 51.6, raan: 0, arg_perigee: 0, num_orbits: 5 });
+}, 500);
+</script>
+
+</body>
+</html>
