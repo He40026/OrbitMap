@@ -583,8 +583,26 @@ function splitLonWrap(points) {
     return segments;
 }
 
-function buildCoveragePolygons(pts) {
+function splitCoverage(pts, crosses) {
     const N = pts.length;
+    const polys = [];
+    for (let side = 0; side < 2; side++) {
+        const c0 = crosses[side], c1 = crosses[1 - side];
+        const firstPtLon = pts[(c0.idx + 1) % N][1];
+        const closeLon = firstPtLon > 0 ? 180 : -180;
+        const poly = [[c0.lat, closeLon]];
+        let i = (c0.idx + 1) % N;
+        while (i !== c1.idx) { poly.push([pts[i][0], pts[i][1]]); i = (i + 1) % N; }
+        poly.push([pts[c1.idx][0], pts[c1.idx][1]]);
+        poly.push([c1.lat, closeLon]);
+        polys.push(poly);
+    }
+    return polys;
+}
+
+function buildCoveragePolygons(pts, centerLon) {
+    const N = pts.length;
+    // Find natural crossings at ±180
     const crosses = [];
     for (let i = 0; i < N; i++) {
         const p = pts[i], n = pts[(i + 1) % N];
@@ -594,23 +612,13 @@ function buildCoveragePolygons(pts) {
             crosses.push({ idx: i, lat: p[0] + frac * (n[0] - p[0]) });
         }
     }
-    if (crosses.length !== 2) return [pts];
-    const polys = [];
-    for (let side = 0; side < 2; side++) {
-        const c0 = crosses[side], c1 = crosses[1 - side];
-        const firstPtLon = pts[(c0.idx + 1) % N][1];
-        const closeLon = firstPtLon > 0 ? 180 : -180;
-        const poly = [[c0.lat, closeLon]];
-        let i = (c0.idx + 1) % N;
-        while (i !== c1.idx) {
-            poly.push([pts[i][0], pts[i][1]]);
-            i = (i + 1) % N;
-        }
-        poly.push([pts[c1.idx][0], pts[c1.idx][1]]);
-        poly.push([c1.lat, closeLon]);
-        polys.push(poly);
-    }
-    return polys;
+    if (crosses.length === 2) return splitCoverage(pts, crosses);
+    // Check lon span
+    let mn = 180, mx = -180;
+    for (const p of pts) { if (p[1] < mn) mn = p[1]; if (p[1] > mx) mx = p[1]; }
+    if (mx - mn <= 300) return [pts];
+    // Polar case: no fill (only the dashed outline line is drawn by caller)
+    return [];
 }
 
 function updateTerminatorDynamic(gstNow) {
@@ -709,14 +717,37 @@ function updateCoverage(satLat, satLon, alt, eciX, eciY, eciZ, thetaGP) {
     const pts = computeCoverageCircle(satLat, satLon, coverageElevation, alt);
     if (pts.length === 0) return;
     covCirclePts = pts;
-    // 2D Leaflet polygon (clipped at antimeridian)
+    // 2D Leaflet fill (clipped at antimeridian — works for normal cases)
     const geo = pts.map(p => [p.lat, p.lon]);
-    const polys = buildCoveragePolygons(geo);
+    const polys = buildCoveragePolygons(geo, satLon);
     polys.forEach(poly => {
         if (poly.length > 2) {
             L.polygon(poly, { color: '#00ffcc', weight: 1, fillColor: '#00ffcc', fillOpacity: 0.12, opacity: 0.5 }).addTo(coverageLayer);
         }
     });
+    // Two boundary lines (like terminator): solid exact + dashed inward
+    for (const seg of splitLonWrap(geo)) {
+        if (seg.length > 1) {
+            L.polyline(seg, { color: '#00ffcc', weight: 2, opacity: 0.65 }).addTo(coverageLayer);
+        }
+    }
+    // Dashed line: scale ECEF inward (preserves antimeridian crossing)
+    const srLat = satLat * Math.PI / 180, srLon = satLon * Math.PI / 180;
+    const ssx = R_EARTH * Math.cos(srLat) * Math.cos(srLon);
+    const ssy = R_EARTH * Math.cos(srLat) * Math.sin(srLon);
+    const ssz = R_EARTH * Math.sin(srLat);
+    const innerGeo = pts.map(p => {
+        const ix = ssx + (p.ex - ssx) * 0.92;
+        const iy = ssy + (p.ey - ssy) * 0.92;
+        const iz = ssz + (p.ez - ssz) * 0.92;
+        return [Math.atan2(iz, Math.sqrt(ix * ix + iy * iy)) * 180 / Math.PI,
+                Math.atan2(iy, ix) * 180 / Math.PI];
+    });
+    for (const seg of splitLonWrap(innerGeo)) {
+        if (seg.length > 1) {
+            L.polyline(seg, { color: '#00ffcc', weight: 1.5, opacity: 0.8, dashArray: '5,7' }).addTo(coverageLayer);
+        }
+    }
     // 3D circle on earthGroup (earth-local ECEF coords)
     const posAttr = covLine.geometry.attributes.position;
     const array = posAttr.array;
