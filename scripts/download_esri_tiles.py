@@ -4,7 +4,8 @@ import os
 import time
 import urllib.request
 
-TILE_DIR = os.path.join('static', 'tiles', 'esri')
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TILE_DIR = os.path.join(BASE_DIR, 'static', 'tiles', 'esri')
 ZOOM_LEVELS = range(0, 6)
 HEADERS = {'User-Agent': 'OrbitVisualizer/1.0 (educational project)'}
 DELAY = 0.4

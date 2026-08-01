@@ -3,7 +3,8 @@ import os
 import time
 import urllib.request
 
-TILE_DIR = os.path.join('static', 'tiles', 'osm')
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TILE_DIR = os.path.join(BASE_DIR, 'static', 'tiles', 'osm')
 ZOOM_LEVELS = range(0, 4)
 HEADERS = {'User-Agent': 'OrbitVisualizer/1.0 (educational project)'}
 

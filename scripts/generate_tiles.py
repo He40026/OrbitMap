@@ -2,7 +2,8 @@
 import os
 from PIL import Image, ImageDraw
 
-TILE_DIR = os.path.join('static', 'tiles', 'osm')
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TILE_DIR = os.path.join(BASE_DIR, 'static', 'tiles', 'osm')
 ZOOM_LEVELS = range(0, 5)
 TILE_SIZE = 256
 

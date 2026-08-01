@@ -10,7 +10,7 @@
 - **覆盖范围(footprint)**:根据轨道高度与最小仰角计算球冠,2D 填充 + 3D 地表圆环与卫星锥体;**极点、跨日界线场景由 d3-geo 球面裁剪正确处理**(此前无法填充的场景现已支持)
 - **TLE 支持**:快速加载(ISS / 天宫 / Hubble / NOAA 19 / GPS)或粘贴两行 TLE 自动解析,平近点角随时间推进;也可指定轨道历元 / 模拟开始时间
 - **轨道计算**:开普勒方程求解、3-1-3 欧拉旋转 ECI 变换、含地球自转的地面轨迹、近地点/远地点/周期等轨道根数输出
-- **离线可用**:地图瓦片本地化(download_esri_tiles.py),前端依赖 d3-geo / d3-array 亦本地化于 `static/vendor/`
+- **离线可用**:地图瓦片本地化(scripts/download_esri_tiles.py),前端依赖 d3-geo / d3-array 亦本地化于 `static/vendor/`
 
 ## 快速开始
 
@@ -24,11 +24,11 @@ Windows 下也可直接双击 `start.bat`(自动检查瓦片,缺失时提示下�
 首次运行建议执行瓦片下载(需联网,仅一次):
 
 ```bash
-python download_esri_tiles.py   # Esri 卫星图 zoom 0-5(约 1365 张,需访问 arcgisonline)
-python download_tiles.py        # OSM 地图 zoom 0-3
+python scripts/download_esri_tiles.py   # Esri 卫星图 zoom 0-5(约 1365 张,需访问 arcgisonline)
+python scripts/download_tiles.py        # OSM 地图 zoom 0-3
 ```
 
-断网或下载失败时可生成占位瓦片: `python generate_tiles.py`
+断网或下载失败时可生成占位瓦片: `python scripts/generate_tiles.py`
 
 ## API
 
@@ -40,15 +40,16 @@ python download_tiles.py        # OSM 地图 zoom 0-3
 ## 项目结构
 
 ```
-app.py                  Flask 后端(API + 页面)
-orbit_calc.py           轨道计算核心(开普勒方程、ECI/ECEF 变换、地面轨迹)
-templates/index.html    单页前端(Three.js 3D + Leaflet 2D + d3-geo SVG 覆盖层)
-static/vendor/          d3-array / d3-geo(本地化依赖)
-static/tiles/           离线地图瓦片(esri / osm)
-download_esri_tiles.py   Esri 卫星瓦片下载
-download_tiles.py        OSM 瓦片下载
-generate_tiles.py        占位瓦片生成
-start.bat               Windows 启动脚本
+app.py                      Flask 后端(API + 页面)
+orbit_calc.py               轨道计算核心(开普勒方程、ECI/ECEF 变换、地面轨迹)
+templates/index.html        单页前端(Three.js 3D + Leaflet 2D + d3-geo SVG 覆盖层)
+static/vendor/              d3-array / d3-geo(本地化依赖)
+static/tiles/               离线地图瓦片(esri / osm)
+scripts/                    工具脚本
+  download_esri_tiles.py    Esri 卫星瓦片下载
+  download_tiles.py         OSM 瓦片下载
+  generate_tiles.py         占位瓦片生成
+start.bat                   Windows 启动脚本
 ```
 
 ## 技术说明

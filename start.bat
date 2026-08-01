@@ -9,7 +9,7 @@ set ESRIDIR=static\tiles\esri\0\0
 if exist "%ESRIDIR%\0.png" goto :start
 
 echo [1/3] Esri satellite tiles not found.
-echo       Run download_esri_tiles.py to download them (requires internet once).
+echo       Run scripts\download_esri_tiles.py to download them (requires internet once).
 echo.
 set /p choice="Download Esri tiles now? (y/n, default=n): "
 if /i "%choice%"=="y" (
@@ -17,15 +17,15 @@ if /i "%choice%"=="y" (
     echo Downloading tiles - this needs internet access (VPN if outside CN)...
     echo Only needs to run ONCE.
     echo.
-    python download_esri_tiles.py
+    python scripts\download_esri_tiles.py
     if errorlevel 1 (
         echo.
         echo Download failed. Generating placeholder map tiles instead.
-        python generate_tiles.py
+        python scripts\generate_tiles.py
     )
 ) else (
     echo Generating placeholder map tiles...
-    python generate_tiles.py
+    python scripts\generate_tiles.py
 )
 echo.
 
