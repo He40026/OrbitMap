@@ -1,6 +1,6 @@
 @echo off
 title Orbit Visualizer
-cd /d "D:\Code\OpenCode\Orbit map"
+cd /d "%~dp0"
 echo Starting Orbit Visualizer...
 echo.
 

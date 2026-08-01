@@ -1,4 +1,4 @@
-"""Orbit computation module - extracted from orbit_viz.py"""
+"""Orbit computation module (Keplerian two-body model)."""
 
 import numpy as np
 

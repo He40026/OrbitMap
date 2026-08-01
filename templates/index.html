@@ -229,7 +229,7 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
             <input type="range" id="speedSlider" min="2" max="30" value="10" step="1">
             <span class="speed-label" id="speedLabel">10s</span>
         </div>
-        <div id="map2d"></div>
+        <div id="map2d"><svg id="d3Overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:450; overflow:hidden;"></svg></div>
     </div>
 </div>
 
@@ -242,6 +242,8 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
 }
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/vendor/d3-array.min.js"></script>
+<script src="/static/vendor/d3-geo.min.js"></script>
 
 <script type="module">
 import * as THREE from 'three';
@@ -364,19 +366,60 @@ function setTileLayer(key) {
 
 setTileLayer('satellite');
 
+// ── d3-geo SVG overlay (spherical clipping for terminator / coverage fills) ──
+const d3Svg = document.getElementById('d3Overlay');
+const d3Proj = d3.geoMercator().translate([0, 0]).scale(1);
+const d3PathGen = d3.geoPath(d3Proj);
+const d3Paths = {};
+function makeD3Path(id, attrs) {
+    const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    el.setAttribute('id', id);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    d3Svg.appendChild(el);
+    d3Paths[id] = el;
+    return el;
+}
+makeD3Path('terminatorFill', { fill: '#101c3a', 'fill-opacity': '0.45', stroke: 'none' });
+makeD3Path('terminatorLine', { fill: 'none', stroke: '#ffaa00', 'stroke-width': '2', opacity: '0.9' });
+makeD3Path('coverageFill', { fill: '#00ffcc', 'fill-opacity': '0.12', stroke: 'none' });
+makeD3Path('coverageLine', { fill: 'none', stroke: '#00ffcc', 'stroke-width': '1.5', opacity: '0.7' });
+function setD3Path(id, geo) {
+    d3Paths[id].setAttribute('d', d3PathGen(geo) || '');
+}
+function syncD3Projection() {
+    const w = map2dEl.clientWidth, h = map2dEl.clientHeight;
+    if (w <= 0 || h <= 0) return;
+    const c = leafletMap.getCenter();
+    const zoom = leafletMap.getZoom();
+    // 精确 Web Mercator 容器坐标:Leaflet 的 latLngToContainerPoint 内部会取整(_round),
+    // 导致参考点像素差失真(0.5° 在 zoom 2 下仅 1px vs 真实 1.42px,比例误差 ~30%)
+    const pt = (lat, lng) => {
+        const p = L.CRS.EPSG3857.latLngToPoint(L.latLng(lat, lng), zoom);
+        const o = leafletMap.getPixelOrigin();
+        return { x: p.x - o.x, y: p.y - o.y };
+    };
+    const p0 = pt(c.lat, c.lng);
+    const p1 = pt(c.lat, c.lng + 1);
+    const k = (p1.x - p0.x) / (Math.PI / 180);
+    const lam = c.lng * Math.PI / 180, phi = c.lat * Math.PI / 180;
+    const tx = p0.x - k * lam;
+    // d3 geoMercator 默认 y 向上为正(纬度增大 y 减小),与 Leaflet 一致;不需要 reflectY
+    const ty = p0.y + k * Math.log(Math.tan(Math.PI / 4 + phi / 2));
+    d3Proj.scale(k).translate([tx, ty]).clipExtent([[0, 0], [w, h]]);
+}
+syncD3Projection();
+leafletMap.on('move zoom resize', syncD3Projection);
+
 document.querySelectorAll('.tile-btn').forEach(btn => {
     btn.addEventListener('click', () => setTileLayer(btn.dataset.tile));
 });
 
 let groundTrackLayer = L.layerGroup().addTo(leafletMap);
-let terminatorLayer = L.layerGroup().addTo(leafletMap);
-let coverageLayer = L.layerGroup().addTo(leafletMap);
 let leafletStartMarker = null;
 let leafletSatMarker2D = null;
 
 document.getElementById('toggleCoverage').addEventListener('change', (e) => {
     coverageEnabled = e.target.checked;
-    if (!coverageEnabled) coverageLayer.clearLayers();
 });
 
 document.getElementById('elevSlider').addEventListener('input', (e) => {
@@ -583,85 +626,53 @@ function splitLonWrap(points) {
     return segments;
 }
 
-function splitCoverage(pts, crosses) {
-    const N = pts.length;
-    const polys = [];
-    for (let side = 0; side < 2; side++) {
-        const c0 = crosses[side], c1 = crosses[1 - side];
-        const firstPtLon = pts[(c0.idx + 1) % N][1];
-        const closeLon = firstPtLon > 0 ? 180 : -180;
-        const poly = [[c0.lat, closeLon]];
-        let i = (c0.idx + 1) % N;
-        while (i !== c1.idx) { poly.push([pts[i][0], pts[i][1]]); i = (i + 1) % N; }
-        poly.push([pts[c1.idx][0], pts[c1.idx][1]]);
-        poly.push([c1.lat, closeLon]);
-        polys.push(poly);
-    }
-    return polys;
+function wrapLon(lon) {
+    return ((lon + 540) % 360 + 360) % 360 - 180;
 }
 
-function buildCoveragePolygons(pts, centerLon) {
-    const N = pts.length;
-    // Find natural crossings at ±180
-    const crosses = [];
-    for (let i = 0; i < N; i++) {
-        const p = pts[i], n = pts[(i + 1) % N];
-        const diff = n[1] - p[1];
-        if (Math.abs(diff) > 180) {
-            const frac = (180 - p[1]) / diff;
-            crosses.push({ idx: i, lat: p[0] + frac * (n[0] - p[0]) });
-        }
-    }
-    if (crosses.length === 2) return splitCoverage(pts, crosses);
-    // Check lon span
-    let mn = 180, mx = -180;
-    for (const p of pts) { if (p[1] < mn) mn = p[1]; if (p[1] > mx) mx = p[1]; }
-    if (mx - mn <= 300) return [pts];
-    // Polar case: no fill (only the dashed outline line is drawn by caller)
-    return [];
-}
-
-function updateTerminatorDynamic(gstNow) {
-    terminatorLayer.clearLayers();
-    const sunLon = ((sunRA - gstNow + 180) % 360 + 360) % 360 - 180;
+function buildTerminatorNight(sunLon, sunDec) {
+    // 晨昏线在纬度 ±(90−|δ|) 处收敛:高纬端(极昼极)收敛于午夜经线,低纬端收敛于正午经线
     const decRad = sunDec * Math.PI / 180;
-    const evening = [];
-    const morning = [];
-
+    const lim = 90 - Math.abs(sunDec);
+    const noonLon = wrapLon(sunLon), midLon = wrapLon(sunLon + 180);
+    const northEndLon = sunDec >= 0 ? midLon : noonLon;
+    const southEndLon = sunDec >= 0 ? noonLon : midLon;
+    const evening = [[-lim, southEndLon]], morning = [[-lim, southEndLon]];
     for (let lat = -90; lat <= 90; lat += 0.5) {
         const phi = lat * Math.PI / 180;
         const tpd = Math.tan(phi) * Math.tan(decRad);
         if (Math.abs(tpd) <= 1) {
             const H = Math.acos(-tpd) * 180 / Math.PI;
-            const lonE = ((sunLon - H + 180) % 360 + 360) % 360 - 180;
-            const lonM = ((sunLon + H + 180) % 360 + 360) % 360 - 180;
-            evening.push([lat, lonE]);
-            morning.push([lat, lonM]);
+            evening.push([lat, wrapLon(sunLon - H)]);
+            morning.push([lat, wrapLon(sunLon + H)]);
         }
     }
+    if (evening.length < 3) return null;
+    evening.push([lim, northEndLon]);
+    morning.push([lim, northEndLon]);
+    // 黑夜区域环:evening(南→北)+ morning(北→南),所有顶点均在晨昏线上,自然闭合
+    const ring = [...evening, ...morning.slice().reverse()];
+    // 方向校验:黑夜环必须包含反太阳点(午夜经线);否则翻转顶点顺序
+    const poly = { type: 'Polygon', coordinates: [ring.map(p => [p[1], p[0]])] };
+    if (!d3.geoContains(poly, [wrapLon(sunLon + 180), 0])) ring.reverse();
+    // GeoJSON 坐标顺序为 [lon, lat]
+    const ringLonLat = ring.map(p => [p[1], p[0]]);
+    return {
+        fill: { type: 'Polygon', coordinates: [ringLonLat] },
+        line: { type: 'LineString', coordinates: ringLonLat },
+    };
+}
 
-    if (evening.length > 1) {
-        // Evening terminator: day→night eastward, night is west → solid at exact, dashed west
-        for (const seg of splitLonWrap(evening)) {
-            if (seg.length > 1) {
-                L.polyline(seg, { color: '#ffaa00', weight: 3, opacity: 1 }).addTo(terminatorLayer);
-                const dashed = seg.map(([lat, lon]) => [lat, lon - 3]);
-                for (const segD of splitLonWrap(dashed)) {
-                    if (segD.length > 1) L.polyline(segD, { color: '#66ddff', weight: 2, opacity: 0.85, dashArray: '5,6' }).addTo(terminatorLayer);
-                }
-            }
-        }
-        // Morning terminator: night→day eastward, night is east → solid at exact, dashed east
-        for (const seg of splitLonWrap(morning)) {
-            if (seg.length > 1) {
-                L.polyline(seg, { color: '#ffaa00', weight: 3, opacity: 1 }).addTo(terminatorLayer);
-                const dashed = seg.map(([lat, lon]) => [lat, lon + 3]);
-                for (const segD of splitLonWrap(dashed)) {
-                    if (segD.length > 1) L.polyline(segD, { color: '#66ddff', weight: 2, opacity: 0.85, dashArray: '5,6' }).addTo(terminatorLayer);
-                }
-            }
-        }
+function updateTerminatorDynamic(gstNow) {
+    const sunLon = ((sunRA - gstNow + 180) % 360 + 360) % 360 - 180;
+    const night = buildTerminatorNight(sunLon, sunDec);
+    if (!night) {
+        setD3Path('terminatorFill', null);
+        setD3Path('terminatorLine', null);
+        return;
     }
+    setD3Path('terminatorFill', night.fill);
+    setD3Path('terminatorLine', night.line);
 }
 
 // ── Coverage (Footprint) ──
@@ -710,44 +721,24 @@ function computeCoverageCircle(latDeg, lonDeg, elevAngle, altitude) {
 }
 
 function updateCoverage(satLat, satLon, alt, eciX, eciY, eciZ, thetaGP) {
-    coverageLayer.clearLayers();
     coverage3DGroup.visible = coverageEnabled;
     coverageConeGroup.visible = coverageEnabled;
-    if (!coverageEnabled) return;
+    if (!coverageEnabled) {
+        setD3Path('coverageFill', null);
+        setD3Path('coverageLine', null);
+        return;
+    }
     const pts = computeCoverageCircle(satLat, satLon, coverageElevation, alt);
-    if (pts.length === 0) return;
+    if (pts.length === 0) {
+        setD3Path('coverageFill', null);
+        setD3Path('coverageLine', null);
+        return;
+    }
     covCirclePts = pts;
-    // 2D Leaflet fill (clipped at antimeridian — works for normal cases)
-    const geo = pts.map(p => [p.lat, p.lon]);
-    const polys = buildCoveragePolygons(geo, satLon);
-    polys.forEach(poly => {
-        if (poly.length > 2) {
-            L.polygon(poly, { color: '#00ffcc', weight: 1, fillColor: '#00ffcc', fillOpacity: 0.12, opacity: 0.5 }).addTo(coverageLayer);
-        }
-    });
-    // Two boundary lines (like terminator): solid exact + dashed inward
-    for (const seg of splitLonWrap(geo)) {
-        if (seg.length > 1) {
-            L.polyline(seg, { color: '#00ffcc', weight: 2, opacity: 0.65 }).addTo(coverageLayer);
-        }
-    }
-    // Dashed line: scale ECEF inward (preserves antimeridian crossing)
-    const srLat = satLat * Math.PI / 180, srLon = satLon * Math.PI / 180;
-    const ssx = R_EARTH * Math.cos(srLat) * Math.cos(srLon);
-    const ssy = R_EARTH * Math.cos(srLat) * Math.sin(srLon);
-    const ssz = R_EARTH * Math.sin(srLat);
-    const innerGeo = pts.map(p => {
-        const ix = ssx + (p.ex - ssx) * 0.92;
-        const iy = ssy + (p.ey - ssy) * 0.92;
-        const iz = ssz + (p.ez - ssz) * 0.92;
-        return [Math.atan2(iz, Math.sqrt(ix * ix + iy * iy)) * 180 / Math.PI,
-                Math.atan2(iy, ix) * 180 / Math.PI];
-    });
-    for (const seg of splitLonWrap(innerGeo)) {
-        if (seg.length > 1) {
-            L.polyline(seg, { color: '#00ffcc', weight: 1.5, opacity: 0.8, dashArray: '5,7' }).addTo(coverageLayer);
-        }
-    }
+    // 2D 覆盖球冠:直接作为球面多边形渲染,极点/日界线由 d3 球面裁剪处理
+    const ringLonLat = pts.map(p => [p.lon, p.lat]);
+    setD3Path('coverageFill', { type: 'Polygon', coordinates: [ringLonLat] });
+    setD3Path('coverageLine', { type: 'LineString', coordinates: ringLonLat });
     // 3D circle on earthGroup (earth-local ECEF coords)
     const posAttr = covLine.geometry.attributes.position;
     const array = posAttr.array;
@@ -975,7 +966,6 @@ function updateOrbit3D(data) {
         clearGroup(eqPlaneGroup);
         coverage3DGroup.visible = false;
         coverageConeGroup.visible = false;
-        coverageLayer.clearLayers();
 
         const { orbit_3d, orbit_anim, orbital_elements, num_orbits } = data;
         const semiMajor = orbital_elements.semi_major_axis;
