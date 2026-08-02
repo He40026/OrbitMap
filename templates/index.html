@@ -219,16 +219,28 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
                 <label>Min Elevation 最小仰角: <span id="elevLabel">10°</span></label>
                 <input type="range" id="elevSlider" min="0" max="45" value="10" step="1" style="width:100%;">
             </div>
+            <div class="form-group" style="margin-bottom:4px;">
+                <label>Colorbar 色阶方案</label>
+                <select id="heatmapScheme" style="width:100%;padding:5px 6px;background:#252540;border:1px solid #3a3a5a;color:#eee;border-radius:4px;font-size:0.78em;">
+                    <option value="default">默认 蓝→紫（1-12+）</option>
+                    <option value="spectral">光谱 Spectral（蓝→红）</option>
+                    <option value="warm">暖色 Warm（黄→深红）</option>
+                    <option value="cool">冷色 Cool（青→紫）</option>
+                    <option value="viridis">Viridis（深紫→黄）</option>
+                    <option value="rainbow">彩虹 Rainbow</option>
+                    <option value="grayscale">灰度 Grayscale</option>
+                </select>
+            </div>
             <div style="display:flex; align-items:center; gap:5px; font-size:0.62em; color:#889; margin-top:2px;">
                 <span>重叠数</span>
-                <span style="width:14px;height:10px;background:rgba(0,120,255,0.75);display:inline-block;border-radius:2px;"></span><span>1</span>
-                <span style="width:14px;height:10px;background:rgba(0,200,220,0.8);display:inline-block;border-radius:2px;"></span><span>2</span>
-                <span style="width:14px;height:10px;background:rgba(30,220,100,0.85);display:inline-block;border-radius:2px;"></span><span>3</span>
-                <span style="width:14px;height:10px;background:rgba(150,220,60,0.9);display:inline-block;border-radius:2px;"></span><span>4</span>
-                <span style="width:14px;height:10px;background:rgba(255,190,0,0.9);display:inline-block;border-radius:2px;"></span><span>5</span>
-                <span style="width:14px;height:10px;background:rgba(255,106,20,0.92);display:inline-block;border-radius:2px;"></span><span>6-7</span>
-                <span style="width:14px;height:10px;background:rgba(255,60,60,0.95);display:inline-block;border-radius:2px;"></span><span>8-9</span>
-                <span style="width:14px;height:10px;background:rgba(110,40,220,0.95);display:inline-block;border-radius:2px;"></span><span>10+</span>
+                <span id="legendChip0" style="width:14px;height:10px;display:inline-block;border-radius:2px;"></span><span>1</span>
+                <span id="legendChip1" style="width:14px;height:10px;display:inline-block;border-radius:2px;"></span><span>2</span>
+                <span id="legendChip2" style="width:14px;height:10px;display:inline-block;border-radius:2px;"></span><span>3</span>
+                <span id="legendChip3" style="width:14px;height:10px;display:inline-block;border-radius:2px;"></span><span>4</span>
+                <span id="legendChip4" style="width:14px;height:10px;display:inline-block;border-radius:2px;"></span><span>5</span>
+                <span id="legendChip5" style="width:14px;height:10px;display:inline-block;border-radius:2px;"></span><span>6-7</span>
+                <span id="legendChip6" style="width:14px;height:10px;display:inline-block;border-radius:2px;"></span><span>8-9</span>
+                <span id="legendChip7" style="width:14px;height:10px;display:inline-block;border-radius:2px;"></span><span>10+</span>
             </div>
         </div>
 
@@ -541,6 +553,11 @@ document.getElementById('toggleCoverage').addEventListener('change', (e) => {
 document.getElementById('elevSlider').addEventListener('input', (e) => {
     coverageElevation = parseInt(e.target.value);
     document.getElementById('elevLabel').textContent = coverageElevation + '\u00b0';
+    if (constellationMode && constellation) updateCoverageHeatmap(lastSimElapsed, lastThetaGP);
+});
+
+document.getElementById('heatmapScheme').addEventListener('change', () => {
+    renderHeatmapLegend();
     if (constellationMode && constellation) updateCoverageHeatmap(lastSimElapsed, lastThetaGP);
 });
 
@@ -1843,21 +1860,87 @@ function getEciAtTime(s, elapsedSec) {
 }
 
 // ── Constellation coverage overlap heatmap (2D) ──
-const COV_PALETTE = [
-    [0, 120, 255],   // 1 blue
-    [0, 200, 220],   // 2 cyan
-    [30, 220, 100],  // 3 green
-    [150, 220, 60],  // 4 lime
-    [255, 190, 0],   // 5 orange
-    [255, 140, 0],   // 6 deep orange
-    [255, 90, 40],   // 7 orange-red
-    [255, 60, 60],   // 8 red
-    [235, 50, 120],  // 9 magenta
-    [210, 50, 170],  // 10 magenta-purple
-    [180, 50, 210],  // 11 purple
-    [140, 60, 240],  // 12 bright purple
-];
-const COV_PALETTE_OVER = [110, 40, 220]; // 13+ deep violet
+const HEATMAP_SCHEMES = {
+    default: {
+        name: '默认',
+        discrete: true,
+        stops: [
+            [0, 120, 255],   // 1 blue
+            [0, 200, 220],   // 2 cyan
+            [30, 220, 100],  // 3 green
+            [150, 220, 60],  // 4 lime
+            [255, 190, 0],   // 5 orange
+            [255, 140, 0],   // 6 deep orange
+            [255, 90, 40],   // 7 orange-red
+            [255, 60, 60],   // 8 red
+            [235, 50, 120],  // 9 magenta
+            [210, 50, 170],  // 10 magenta-purple
+            [180, 50, 210],  // 11 purple
+            [140, 60, 240],  // 12 bright purple
+            [110, 40, 220],  // 13+ deep violet
+        ],
+    },
+    spectral: { name: '光谱', discrete: false, stops: [
+        [0, 0, 160], [0, 60, 255], [0, 200, 255], [0, 220, 120],
+        [60, 230, 60], [200, 240, 40], [255, 220, 0], [255, 160, 0],
+        [255, 90, 0], [255, 40, 40], [200, 20, 90], [120, 10, 140],
+    ]},
+    warm: { name: '暖色', discrete: false, stops: [
+        [255, 240, 160], [255, 220, 80], [255, 180, 0], [255, 140, 0],
+        [255, 100, 0], [255, 70, 20], [255, 50, 50], [220, 30, 60],
+        [180, 20, 70], [140, 15, 80],
+    ]},
+    cool: { name: '冷色', discrete: false, stops: [
+        [0, 220, 230], [0, 170, 255], [0, 110, 255], [0, 60, 230],
+        [60, 40, 220], [110, 40, 210], [150, 50, 200], [180, 60, 190],
+    ]},
+    viridis: { name: 'Viridis', discrete: false, stops: [
+        [68, 1, 84], [72, 40, 120], [62, 74, 137], [49, 104, 142],
+        [38, 130, 142], [31, 158, 137], [53, 183, 121], [109, 205, 89],
+        [180, 222, 44], [253, 231, 37],
+    ]},
+    rainbow: { name: '彩虹', discrete: false, stops: [
+        [255, 0, 60], [255, 120, 0], [255, 230, 0], [120, 230, 0],
+        [0, 200, 120], [0, 180, 220], [60, 80, 255], [140, 40, 220],
+        [220, 30, 160],
+    ]},
+    grayscale: { name: '灰度', discrete: false, stops: [
+        [20, 20, 20], [60, 60, 60], [100, 100, 100], [140, 140, 140],
+        [180, 180, 180], [215, 215, 215], [245, 245, 245], [255, 255, 255],
+    ]},
+};
+const COV_COLOR_COUNT = 16;
+
+function getCoveragePalette(key) {
+    const scheme = HEATMAP_SCHEMES[key] || HEATMAP_SCHEMES.default;
+    if (scheme.discrete) return scheme.stops.slice();
+    const colors = [];
+    const stops = scheme.stops;
+    for (let i = 0; i < COV_COLOR_COUNT; i++) {
+        const f = (i / (COV_COLOR_COUNT - 1)) * (stops.length - 1);
+        const i0 = Math.floor(f);
+        const i1 = Math.min(i0 + 1, stops.length - 1);
+        const t = f - i0;
+        colors.push([
+            Math.round(stops[i0][0] + (stops[i1][0] - stops[i0][0]) * t),
+            Math.round(stops[i0][1] + (stops[i1][1] - stops[i0][1]) * t),
+            Math.round(stops[i0][2] + (stops[i1][2] - stops[i0][2]) * t),
+        ]);
+    }
+    return colors;
+}
+
+function renderHeatmapLegend() {
+    const key = document.getElementById('heatmapScheme').value;
+    const palette = getCoveragePalette(key);
+    const idxs = [0, 1, 2, 3, 4, 6, 8, 12];
+    idxs.forEach((idx, k) => {
+        const chip = document.getElementById('legendChip' + k);
+        if (!chip) return;
+        const c = palette[Math.min(idx, palette.length - 1)];
+        chip.style.background = 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',0.9)';
+    });
+}
 
 function updateCoverageHeatmap(simElapsed, thetaGP) {
     if (!constellationMode || !constellation || !coverageEnabled) {
@@ -1901,6 +1984,7 @@ function updateCoverageHeatmap(simElapsed, thetaGP) {
 
     const imgData = covAccCtx.getImageData(0, 0, cw, ch);
     const px = imgData.data;
+    const palette = getCoveragePalette(document.getElementById('heatmapScheme').value);
     for (let p = 0; p < px.length; p += 4) {
         const c = px[p];
         if (c === 0) {
@@ -1908,10 +1992,10 @@ function updateCoverageHeatmap(simElapsed, thetaGP) {
             continue;
         }
         let r, g, b;
-        if (c <= COV_PALETTE.length) {
-            [r, g, b] = COV_PALETTE[c - 1];
+        if (c <= palette.length) {
+            [r, g, b] = palette[c - 1];
         } else {
-            [r, g, b] = COV_PALETTE_OVER;
+            [r, g, b] = palette[palette.length - 1];
         }
         const a = Math.min(150 + (c - 1) * 5, 215);
         px[p] = r; px[p + 1] = g; px[p + 2] = b; px[p + 3] = a;
@@ -1923,6 +2007,8 @@ function updateCoverageHeatmap(simElapsed, thetaGP) {
     covHeatCtx.imageSmoothingEnabled = true;
     covHeatCtx.drawImage(covAccCanvas, 0, 0, cw, ch, 0, 0, W, H);
 }
+
+renderHeatmapLegend();
 
 document.getElementById('btnLoadConstellation').addEventListener('click', loadConstellation);
 document.getElementById('btnClearConstellation').addEventListener('click', clearConstellation);
