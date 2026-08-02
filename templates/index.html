@@ -224,8 +224,11 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
                 <span style="width:14px;height:10px;background:rgba(0,120,255,0.75);display:inline-block;border-radius:2px;"></span><span>1</span>
                 <span style="width:14px;height:10px;background:rgba(0,200,220,0.8);display:inline-block;border-radius:2px;"></span><span>2</span>
                 <span style="width:14px;height:10px;background:rgba(30,220,100,0.85);display:inline-block;border-radius:2px;"></span><span>3</span>
-                <span style="width:14px;height:10px;background:rgba(255,190,0,0.9);display:inline-block;border-radius:2px;"></span><span>4</span>
-                <span style="width:14px;height:10px;background:rgba(255,60,60,0.95);display:inline-block;border-radius:2px;"></span><span>5+</span>
+                <span style="width:14px;height:10px;background:rgba(150,220,60,0.9);display:inline-block;border-radius:2px;"></span><span>4</span>
+                <span style="width:14px;height:10px;background:rgba(255,190,0,0.9);display:inline-block;border-radius:2px;"></span><span>5</span>
+                <span style="width:14px;height:10px;background:rgba(255,106,20,0.92);display:inline-block;border-radius:2px;"></span><span>6-7</span>
+                <span style="width:14px;height:10px;background:rgba(255,60,60,0.95);display:inline-block;border-radius:2px;"></span><span>8-9</span>
+                <span style="width:14px;height:10px;background:rgba(110,40,220,0.95);display:inline-block;border-radius:2px;"></span><span>10+</span>
             </div>
         </div>
 
@@ -250,6 +253,11 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
                 <label>最多显示卫星数 Display Limit: <span id="densityLabel">60</span></label>
                 <input type="range" id="constellationDensity" min="10" max="200" value="60" step="10" style="width:100%;" title="大星座（如星链）最多渲染的卫星数，超出时均匀抽样">
                 <div style="font-size:0.62em;color:#667;margin-top:2px;">星链/OneWeb 等大星座按此数量均匀抽样</div>
+            </div>
+            <div class="form-group" style="margin-bottom:4px;">
+                <label>模拟时长 Sim Duration: <span id="durationLabel">12</span> h</label>
+                <input type="number" id="constellationDuration" min="0.5" max="168" step="0.5" value="12" style="width:100%;" title="进度条覆盖的模拟时间长度（小时）">
+                <div style="font-size:0.62em;color:#667;margin-top:2px;">进度条覆盖的模拟时间长度，按星座周期自行调整（如 GPS 12h、LEO 1-3h）</div>
             </div>
             <div class="form-group" style="margin-bottom:6px;">
                 <label>Select Satellite 选择卫星</label>
@@ -393,6 +401,22 @@ speedSlider.addEventListener('input', () => {
 document.getElementById('constellationDensity').addEventListener('input', (e) => {
     document.getElementById('densityLabel').textContent = e.target.value;
 });
+
+function getConstellationDurationSec() {
+    const h = parseFloat(document.getElementById('constellationDuration').value);
+    return (isFinite(h) && h > 0) ? h * 3600 : 43200;
+}
+
+function applyConstellationDuration() {
+    if (!constellation) return;
+    constellation.duration = getConstellationDurationSec();
+    progSlider.value = 0;
+    animStartTime = performance.now() / 1000;
+    isScrubbing = false;
+    progTimeLabel.textContent = 'T+00:00:00 / ' + (currentEpoch ? formatUtc(currentEpoch) : '----') + ' UTC';
+}
+
+document.getElementById('constellationDuration').addEventListener('change', applyConstellationDuration);
 
 progSlider.addEventListener('input', () => {
     isScrubbing = true;
@@ -1533,7 +1557,7 @@ function setupConstellation(data, epoch, groupKey, totalCount, sourceLabel) {
     const sats = data.satellites;
     constellation = {
         sats: sats,
-        duration: data.sim_duration || 7200,
+        duration: getConstellationDurationSec(),
         numOrbits: data.num_orbits || 2,
         totalCount: totalCount,
     };
@@ -1819,6 +1843,22 @@ function getEciAtTime(s, elapsedSec) {
 }
 
 // ── Constellation coverage overlap heatmap (2D) ──
+const COV_PALETTE = [
+    [0, 120, 255],   // 1 blue
+    [0, 200, 220],   // 2 cyan
+    [30, 220, 100],  // 3 green
+    [150, 220, 60],  // 4 lime
+    [255, 190, 0],   // 5 orange
+    [255, 140, 0],   // 6 deep orange
+    [255, 90, 40],   // 7 orange-red
+    [255, 60, 60],   // 8 red
+    [235, 50, 120],  // 9 magenta
+    [210, 50, 170],  // 10 magenta-purple
+    [180, 50, 210],  // 11 purple
+    [140, 60, 240],  // 12 bright purple
+];
+const COV_PALETTE_OVER = [110, 40, 220]; // 13+ deep violet
+
 function updateCoverageHeatmap(simElapsed, thetaGP) {
     if (!constellationMode || !constellation || !coverageEnabled) {
         covHeatCtx.clearRect(0, 0, covHeatCanvas.width || 1, covHeatCanvas.height || 1);
@@ -1867,12 +1907,13 @@ function updateCoverageHeatmap(simElapsed, thetaGP) {
             px[p + 3] = 0;
             continue;
         }
-        let r, g, b, a;
-        if (c === 1) { r = 0; g = 120; b = 255; a = 150; }
-        else if (c === 2) { r = 0; g = 200; b = 220; a = 160; }
-        else if (c === 3) { r = 30; g = 220; b = 100; a = 170; }
-        else if (c === 4) { r = 255; g = 190; b = 0; a = 180; }
-        else { r = 255; g = 60; b = 60; a = 195; }
+        let r, g, b;
+        if (c <= COV_PALETTE.length) {
+            [r, g, b] = COV_PALETTE[c - 1];
+        } else {
+            [r, g, b] = COV_PALETTE_OVER;
+        }
+        const a = Math.min(150 + (c - 1) * 5, 215);
         px[p] = r; px[p + 1] = g; px[p + 2] = b; px[p + 3] = a;
     }
     covAccCtx.putImageData(imgData, 0, 0);
