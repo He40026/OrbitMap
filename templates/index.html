@@ -247,8 +247,9 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
                 </select>
             </div>
             <div class="form-group" style="margin-bottom:4px;">
-                <label>Max Sats 采样数量: <span id="densityLabel">60</span></label>
-                <input type="range" id="constellationDensity" min="10" max="200" value="60" step="10" style="width:100%;">
+                <label>最多显示卫星数 Display Limit: <span id="densityLabel">60</span></label>
+                <input type="range" id="constellationDensity" min="10" max="200" value="60" step="10" style="width:100%;" title="大星座（如星链）最多渲染的卫星数，超出时均匀抽样">
+                <div style="font-size:0.62em;color:#667;margin-top:2px;">星链/OneWeb 等大星座按此数量均匀抽样</div>
             </div>
             <div class="form-group" style="margin-bottom:6px;">
                 <label>Select Satellite 选择卫星</label>
@@ -1790,6 +1791,10 @@ function updateCoverageHeatmap(simElapsed, thetaGP) {
     covAccCtx.clearRect(0, 0, cw, ch);
     covAccCtx.fillStyle = 'rgb(1,1,1)';
     covAccCtx.globalCompositeOperation = 'lighter';
+    // Draw at display resolution, then let the canvas transform downscale.
+    // d3-geo spherical clipping handles antimeridian/pole-crossing polygons.
+    covAccCtx.save();
+    covAccCtx.scale(scale, scale);
 
     const sats = constellation.sats;
     for (let i = 0; i < sats.length; i++) {
@@ -1801,16 +1806,14 @@ function updateCoverageHeatmap(simElapsed, thetaGP) {
         if (!isFinite(lat) || !isFinite(lon)) continue;
         const pts = computeCoverageCircle(lat, lon, coverageElevation, alt);
         if (pts.length === 0) continue;
-        covAccCtx.beginPath();
-        for (let j = 0; j < pts.length; j++) {
-            const cp = leafletMap.latLngToContainerPoint([pts[j].lat, pts[j].lon]);
-            const x = cp.x * scale, y = cp.y * scale;
-            if (j === 0) covAccCtx.moveTo(x, y);
-            else covAccCtx.lineTo(x, y);
-        }
-        covAccCtx.closePath();
-        covAccCtx.fill();
+        const poly = { type: 'Polygon', coordinates: [pts.map(p => [p.lon, p.lat])] };
+        const d = d3PathGen(poly);
+        if (!d) continue;
+        try {
+            covAccCtx.fill(new Path2D(d));
+        } catch (e) { /* skip malformed path */ }
     }
+    covAccCtx.restore();
     covAccCtx.globalCompositeOperation = 'source-over';
 
     const imgData = covAccCtx.getImageData(0, 0, cw, ch);
@@ -1997,9 +2000,26 @@ function animateConstellation(fraction) {
         }
     }
 
-    // Coverage: 2D overlap heatmap for all satellites (no selection required)
+    // Coverage: 2D overlap heatmap for all satellites, plus the selected
+    // satellite's own 3D cone/ring and 2D outline when one is chosen
     covHeatFrame++;
-    if (covHeatFrame % 8 === 0) updateCoverageHeatmap(simElapsed, thetaGP);
+    if (covHeatFrame % 10 === 0) updateCoverageHeatmap(simElapsed, thetaGP);
+    if (coverageEnabled && selectedSatIndex >= 0) {
+        const s = constellation.sats[selectedSatIndex];
+        const [eciX, eciY, eciZ] = getEciAtTime(s, simElapsed);
+        const dist = Math.sqrt(eciX * eciX + eciY * eciY + eciZ * eciZ);
+        const alt = dist - R_EARTH;
+        const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
+        if (alt > 0 && isFinite(lat) && isFinite(lon)) {
+            earthGroup.updateMatrixWorld();
+            updateCoverage(lat, lon, alt, eciX, eciY, eciZ, thetaGP);
+        }
+    } else {
+        coverage3DGroup.visible = false;
+        coverageConeGroup.visible = false;
+        setD3Path('coverageFill', null);
+        setD3Path('coverageLine', null);
+    }
 
     const gstNow = ((thetaGP * 180 / Math.PI) % 360 + 360) % 360;
     updateTerminatorDynamic(gstNow);
