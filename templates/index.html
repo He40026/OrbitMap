@@ -1497,6 +1497,8 @@ async function computeConstellationFromCache() {
     setupConstellation(data, st, key, cache.totalCount, cache.sourceLabel);
     if (prevSelected >= 0 && prevSelected < data.satellites.length) {
         selectSatellite(prevSelected);
+    } else if (prevSelected < 0) {
+        deselectSatellite();
     }
     setStatus('Constellation ready: ' + data.satellites.length + ' satellites (' + grp.label + ') - ' + cache.sourceLabel);
 }
@@ -1533,6 +1535,7 @@ function setupConstellation(data, epoch, groupKey, totalCount, sourceLabel) {
         sats: sats,
         duration: data.sim_duration || 7200,
         numOrbits: data.num_orbits || 2,
+        totalCount: totalCount,
     };
     const markerGeo = new THREE.SphereGeometry(70, 12, 12);
 
@@ -1559,7 +1562,10 @@ function setupConstellation(data, epoch, groupKey, totalCount, sourceLabel) {
             radius: 3, color: grp.color, weight: 1,
             fillColor: grp.color, fillOpacity: 0.85,
         });
-        cm.on('click', () => selectSatellite(i));
+        cm.on('click', () => {
+            if (selectedSatIndex === i) deselectSatellite();
+            else selectSatellite(i);
+        });
         cm.addTo(leafletMap);
         constellationMarkers2D.push(cm);
         // Ground trail polyline
@@ -1575,20 +1581,27 @@ function setupConstellation(data, epoch, groupKey, totalCount, sourceLabel) {
     progSlider.value = 0;
     progTimeLabel.textContent = 'T+00:00:00 / ' + (epoch ? formatUtc(epoch) : '----') + ' UTC';
 
+    showConstellationSummary();
+    populateSatSelect();
+    selectSatellite(0);
+}
+
+function showConstellationSummary() {
+    if (!constellation) return;
+    const grp = constellationGroups[constellationGroupKey] || {};
+    const sats = constellation.sats;
     const periods = sats.map(s => s.orbital_elements.period_min);
     const minP = Math.min(...periods), maxP = Math.max(...periods);
     resultsContent.innerHTML = [
         ['星座 Constellation', grp.label],
-        ['组内卫星总数 Total in group', totalCount],
+        ['组内卫星总数 Total in group', constellation.totalCount != null ? constellation.totalCount : '--'],
         ['显示数量 Displayed', sats.length],
         ['数据源 Source', constellationSourceLabel || '--'],
         ['周期范围 Period range', minP.toFixed(1) + ' - ' + maxP.toFixed(1) + ' min'],
-        ['提示 Tip', '点击 2D 地图标记切换跟踪卫星'],
+        ['提示 Tip', '选择卫星查看详情，再次点击标记可取消选择'],
     ].map(([label, value]) =>
         `<div class="row"><span class="label">${label}</span><span class="value">${value}</span></div>`
     ).join('');
-    populateSatSelect();
-    selectSatellite(0);
 }
 
 function showSatelliteDetails(i) {
@@ -1611,7 +1624,11 @@ function showSatelliteDetails(i) {
 }
 
 function selectSatellite(i) {
-    if (!constellation || i < 0 || i >= constellation.sats.length) return;
+    if (!constellation) return;
+    if (i < 0 || i >= constellation.sats.length) {
+        deselectSatellite();
+        return;
+    }
     selectedSatIndex = i;
     constellationMarkers2D.forEach((m, k) => {
         m.setStyle({
@@ -1629,6 +1646,26 @@ function selectSatellite(i) {
     if (sel && sel.options.length > i) sel.value = String(i);
     document.getElementById('btnViewSingle').disabled = false;
     showSatelliteDetails(i);
+}
+
+function deselectSatellite() {
+    selectedSatIndex = -1;
+    constellationMarkers2D.forEach(m => {
+        m.setStyle({ radius: 3, weight: 1, fillOpacity: 0.85 });
+    });
+    constellationMarkers3D.forEach(m => {
+        m.scale.setScalar(1);
+        m.material.transparent = false;
+        m.material.opacity = 1;
+    });
+    const sel = document.getElementById('constellationSatSelect');
+    if (sel) sel.value = '-1';
+    document.getElementById('btnViewSingle').disabled = true;
+    coverage3DGroup.visible = false;
+    coverageConeGroup.visible = false;
+    setD3Path('coverageFill', null);
+    setD3Path('coverageLine', null);
+    showConstellationSummary();
 }
 
 function clearConstellationVisuals() {
@@ -1696,6 +1733,10 @@ function populateSatSelect() {
         document.getElementById('btnViewSingle').disabled = true;
         return;
     }
+    const optNone = document.createElement('option');
+    optNone.value = '-1';
+    optNone.textContent = '— 不选择（仅热力图）—';
+    sel.appendChild(optNone);
     constellation.sats.forEach((s, i) => {
         const opt = document.createElement('option');
         opt.value = String(i);
@@ -1703,8 +1744,8 @@ function populateSatSelect() {
         sel.appendChild(opt);
     });
     sel.disabled = false;
-    sel.value = String(Math.max(0, selectedSatIndex));
-    document.getElementById('btnViewSingle').disabled = false;
+    sel.value = String(selectedSatIndex);
+    document.getElementById('btnViewSingle').disabled = selectedSatIndex < 0;
 }
 
 function clearSatSelect() {
@@ -1756,7 +1797,9 @@ document.querySelectorAll('.mode-btn').forEach(b => {
 });
 document.getElementById('constellationSatSelect').addEventListener('change', (e) => {
     const v = parseInt(e.target.value, 10);
-    if (!isNaN(v)) selectSatellite(v);
+    if (isNaN(v)) return;
+    if (v < 0) deselectSatellite();
+    else selectSatellite(v);
 });
 document.getElementById('btnViewSingle').addEventListener('click', viewSelectedAsSingle);
 
