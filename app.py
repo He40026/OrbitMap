@@ -14,7 +14,7 @@ app = Flask(__name__)
 
 TLE_GROUPS = {
     'gps-ops', 'beidou', 'weather', 'starlink',
-    'iridium', 'galileo', 'glo-ops', 'oneweb',
+    'iridium-next', 'galileo', 'glo-ops', 'oneweb',
 }
 
 

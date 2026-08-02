@@ -107,6 +107,14 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
     border-radius: 3px; cursor: pointer; padding: 2px 8px; line-height: 1.2;
 }
 
+#modeSwitch { display: flex; gap: 4px; margin-bottom: 12px; }
+.mode-btn {
+    flex: 1; padding: 6px 4px; font-size: 0.72em; background: #252540; color: #aaa;
+    border: 1px solid #3a3a5a; border-radius: 4px; cursor: pointer;
+}
+.mode-btn:hover { background: #3a3a5a; color: #fff; }
+.mode-btn.active { background: #4a5aff; color: #fff; border-color: #4a5aff; }
+
 #map2d { flex: 1; min-height: 250px; position: relative; }
 .leaflet-container { background: #1a2a3a; }
 .leaflet-control-zoom a { background: #252540 !important; color: #ccc !important; border-color: #3a3a5a !important; }
@@ -126,6 +134,19 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
     <div id="sidebar">
         <h2>&#127758; Orbit Visualizer 轨道可视化</h2>
         <div class="subtitle">3D Globe + Mercator Ground Track<br>3D地球 · 墨卡托投影地面轨迹</div>
+
+        <div id="modeSwitch">
+            <button type="button" id="modeSingle" class="mode-btn active" data-mode="single">单星 Satellite</button>
+            <button type="button" id="modeConstellation" class="mode-btn" data-mode="constellation">星座 Constellation</button>
+        </div>
+
+        <div class="form-group" style="margin-bottom:12px;">
+            <label><span class="cn">模拟开始时间 (UTC)</span> <span class="en">Sim Start（单星/星座共用）</span></label>
+            <div style="display:flex; gap:4px;">
+                <input type="date" id="simDate" style="flex:1.5;">
+                <input type="time" id="simTimeInput" value="12:00:00" step="1" style="flex:1;">
+            </div>
+        </div>
 
         <form id="orbitForm" autocomplete="off">
             <div class="form-group">
@@ -157,13 +178,6 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
                 <input type="text" id="epochInput" placeholder="2026-06-15 12:00:00">
             </div>
             <div class="form-group">
-                <label><span class="cn">模拟开始时间 (UTC)</span> <span class="en">Sim Start</span></label>
-                <div style="display:flex; gap:4px;">
-                    <input type="date" id="simDate" style="flex:1.5;">
-                    <input type="time" id="simTimeInput" value="12:00:00" step="1" style="flex:1;">
-                </div>
-            </div>
-            <div class="form-group">
                 <label><span class="cn">快速加载 TLE</span> <span class="en">Quick Load TLE</span></label>
                 <div style="display:flex; gap:4px;">
                     <select id="quickTleSelect" style="flex:1; padding:5px 6px; background:#252540; border:1px solid #3a3a5a; color:#eee; border-radius:4px; font-size:0.78em;">
@@ -184,7 +198,7 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
             <button type="submit" id="btnCompute">Compute 计算轨道</button>
         </form>
 
-        <div class="presets">
+        <div class="presets" id="presetsSection">
             <h4>Quick Presets 快捷预设</h4>
             <div class="preset-btns">
                 <button class="preset-btn" data-preset="iss">ISS 国际空间站</button>
@@ -205,9 +219,17 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
                 <label>Min Elevation 最小仰角: <span id="elevLabel">10°</span></label>
                 <input type="range" id="elevSlider" min="0" max="45" value="10" step="1" style="width:100%;">
             </div>
+            <div style="display:flex; align-items:center; gap:5px; font-size:0.62em; color:#889; margin-top:2px;">
+                <span>重叠数</span>
+                <span style="width:14px;height:10px;background:rgba(0,120,255,0.75);display:inline-block;border-radius:2px;"></span><span>1</span>
+                <span style="width:14px;height:10px;background:rgba(0,200,220,0.8);display:inline-block;border-radius:2px;"></span><span>2</span>
+                <span style="width:14px;height:10px;background:rgba(30,220,100,0.85);display:inline-block;border-radius:2px;"></span><span>3</span>
+                <span style="width:14px;height:10px;background:rgba(255,190,0,0.9);display:inline-block;border-radius:2px;"></span><span>4</span>
+                <span style="width:14px;height:10px;background:rgba(255,60,60,0.95);display:inline-block;border-radius:2px;"></span><span>5+</span>
+            </div>
         </div>
 
-        <div class="coverage-section" style="margin-top:12px;padding-top:10px;border-top:1px solid #2a2a4a;">
+        <div class="coverage-section" id="constellationSection" style="margin-top:12px;padding-top:10px;border-top:1px solid #2a2a4a; display:none;">
             <label style="display:flex;align-items:center;gap:6px;font-size:0.76em;color:#aab;margin-bottom:6px;">
                 <span>Constellation 星座跟踪</span>
             </label>
@@ -218,7 +240,7 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
                     <option value="beidou">北斗 BeiDou</option>
                     <option value="weather">风云/气象 Weather</option>
                     <option value="starlink">星链 Starlink</option>
-                    <option value="iridium">铱星 Iridium</option>
+                    <option value="iridium-next">铱星 Iridium NEXT</option>
                     <option value="galileo">伽利略 Galileo</option>
                     <option value="glo-ops">格洛纳斯 GLONASS</option>
                     <option value="oneweb">OneWeb</option>
@@ -227,6 +249,15 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
             <div class="form-group" style="margin-bottom:4px;">
                 <label>Max Sats 采样数量: <span id="densityLabel">60</span></label>
                 <input type="range" id="constellationDensity" min="10" max="200" value="60" step="10" style="width:100%;">
+            </div>
+            <div class="form-group" style="margin-bottom:6px;">
+                <label>Select Satellite 选择卫星</label>
+                <div style="display:flex; gap:4px;">
+                    <select id="constellationSatSelect" disabled style="flex:2; padding:5px 6px; background:#252540; border:1px solid #3a3a5a; color:#eee; border-radius:4px; font-size:0.78em;">
+                        <option value="">-- 加载星座后选择 --</option>
+                    </select>
+                    <button type="button" id="btnViewSingle" disabled style="padding:5px 8px; background:#3a4a5a; color:#ccc; border:1px solid #4a5a6a; border-radius:4px; font-size:0.72em; cursor:pointer; white-space:nowrap;">单星查看</button>
+                </div>
             </div>
             <div style="display:flex; gap:6px;">
                 <button type="button" id="btnLoadConstellation" style="flex:1;padding:7px;background:#3a4a5a;color:#ccc;border:1px solid #4a5a6a;border-radius:4px;font-size:0.76em;cursor:pointer;">Load 加载星座</button>
@@ -261,7 +292,10 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
             <input type="range" id="speedSlider" min="2" max="30" value="10" step="1">
             <span class="speed-label" id="speedLabel">10s</span>
         </div>
-        <div id="map2d"><svg id="d3Overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:450; overflow:hidden;"></svg></div>
+        <div id="map2d">
+            <canvas id="coverageHeatmap" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:440;"></canvas>
+            <svg id="d3Overlay" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:450; overflow:hidden;"></svg>
+        </div>
     </div>
 </div>
 
@@ -313,6 +347,18 @@ let constellationGroupKey = null;
 let constellation = null;
 let selectedSatIndex = -1;
 let lastSingleData = null;
+let uiMode = 'single';
+let constellationCache = null; // { groupKey, density, rawSats, sourceLabel, totalCount }
+let constellationSourceLabel = '';
+let singleSatName = null;
+let lastSimElapsed = 0;
+let lastThetaGP = 0;
+let covHeatFrame = 0;
+
+const covHeatCanvas = document.getElementById('coverageHeatmap');
+const covHeatCtx = covHeatCanvas.getContext('2d');
+const covAccCanvas = document.createElement('canvas');
+const covAccCtx = covAccCanvas.getContext('2d');
 
 function formatUtc(date) {
     return date.toISOString().replace('T', ' ').substring(0, 19);
@@ -464,11 +510,13 @@ let leafletSatMarker2D = null;
 
 document.getElementById('toggleCoverage').addEventListener('change', (e) => {
     coverageEnabled = e.target.checked;
+    if (constellationMode && constellation) updateCoverageHeatmap(lastSimElapsed, lastThetaGP);
 });
 
 document.getElementById('elevSlider').addEventListener('input', (e) => {
     coverageElevation = parseInt(e.target.value);
     document.getElementById('elevLabel').textContent = coverageElevation + '\u00b0';
+    if (constellationMode && constellation) updateCoverageHeatmap(lastSimElapsed, lastThetaGP);
 });
 
 // ── Three.js setup ──
@@ -858,8 +906,19 @@ document.getElementById('epochInput').addEventListener('change', (e) => {
     if (parsed) currentEpoch = parsed;
 });
 
-simDateInput.addEventListener('change', () => jumpToSimTime());
-simTimeInput.addEventListener('change', () => jumpToSimTime());
+function onSimTimeChanged() {
+    if (constellationMode && constellationCache) {
+        isPaused = true;
+        btnPause.innerHTML = '\u25B6';
+        progSlider.value = 0;
+        progTimeLabel.textContent = 'recomputing...';
+        rebuildConstellationFromCache();
+    } else {
+        jumpToSimTime();
+    }
+}
+simDateInput.addEventListener('change', onSimTimeChanged);
+simTimeInput.addEventListener('change', onSimTimeChanged);
 
 // ── TLE parser ──
 let hasTLE = false;
@@ -955,6 +1014,7 @@ function parseAndApplyTLE(text) {
     simTimeInput.value = tle.epoch.toISOString().split('T')[1].substring(0, 8);
     setSunData(tle.epoch);
     updateTerminatorDynamic(0);
+    setUiMode('single');
     recomputeOrbitWithAnomaly(tle.meanAnomaly);
 }
 
@@ -1175,6 +1235,7 @@ function updateResults(data) {
             for (let i = 0; i < n; i++) pts.push(`(${lats[i].toFixed(1)}°,${lons[i].toFixed(1)}°)`);
             rows.push(['地面轨迹样例 GT sample', pts.join(' ')]);
         }
+        if (singleSatName) rows.unshift(['卫星名称 Name', singleSatName]);
         resultsContent.innerHTML = rows.map(([label, value]) =>
             `<div class="row"><span class="label">${label}</span><span class="value">${value}</span></div>`
         ).join('');
@@ -1185,7 +1246,7 @@ function updateResults(data) {
 
 // ── API call ──
 async function computeOrbit(params) {
-    if (constellationMode) clearConstellation();
+    if (uiMode !== 'single') setUiMode('single');
     setStatus(`Computing: p=${params.perigee} a=${params.apogee} i=${params.inclination} raan=${params.raan} w=${params.arg_perigee} ...`);
     btnCompute.disabled = true;
     btnCompute.textContent = 'Computing 计算中...';
@@ -1274,6 +1335,7 @@ presetBtns.forEach(btn => {
         const p = presets[btn.dataset.preset];
         if (!p) return;
         hasTLE = false;
+        setUiMode('single');
         document.getElementById('perigee').value = p.perigee;
         document.getElementById('apogee').value = p.apogee;
         document.getElementById('inclination').value = p.inclination;
@@ -1295,7 +1357,7 @@ const constellationGroups = {
     'beidou':   { label: '北斗 BeiDou',         color: '#ffaa00', color3d: 0xffaa00 },
     'weather':  { label: '风云/气象 Weather',   color: '#88ccff', color3d: 0x88ccff },
     'starlink': { label: '星链 Starlink',       color: '#c49bff', color3d: 0xc49bff },
-    'iridium':  { label: '铱星 Iridium',        color: '#ff6688', color3d: 0xff6688 },
+    'iridium-next': { label: '铱星 Iridium NEXT', color: '#ff6688', color3d: 0xff6688 },
     'galileo':  { label: '伽利略 Galileo',      color: '#66ff88', color3d: 0x66ff88 },
     'glo-ops':  { label: '格洛纳斯 GLONASS',    color: '#ffdd66', color3d: 0xffdd66 },
     'oneweb':   { label: 'OneWeb',              color: '#88ffff', color3d: 0x88ffff },
@@ -1342,63 +1404,108 @@ function sampleSatellites(sats, maxN) {
 async function loadConstellation() {
     const key = document.getElementById('constellationSelect').value;
     const density = parseInt(document.getElementById('constellationDensity').value, 10) || 60;
-    const grp = constellationGroups[key] || constellationGroups['gps-ops'];
     const btn = document.getElementById('btnLoadConstellation');
     btn.disabled = true;
     setStatus('Fetching TLE group: ' + key + ' ...');
+    let rawSats = null;
+    let sourceLabel = '';
+    let totalCount = 0;
     try {
         const resp = await fetch('/api/fetch-tle?group=' + encodeURIComponent(key));
-        if (!resp.ok) {
-            let msg = resp.statusText;
-            try { const err = await resp.json(); msg = err.error || msg; } catch (e) {}
-            alert('Failed to load group: ' + msg);
-            return;
-        }
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
         const text = await resp.text();
         const all = parseTLEList(text);
-        if (all.length === 0) {
-            alert('No valid TLE satellites parsed from group ' + key);
-            return;
-        }
-        const sats = sampleSatellites(all, density);
-        const st = getSimTime();
-        const payload = sats.map(s => {
-            const deltaDays = (st - s.epoch) / 86400000;
-            const M = ((s.meanAnomaly + s.meanMotion * deltaDays * 360) % 360 + 360) % 360;
-            return {
-                name: s.name,
-                perigee: s.perigee,
-                apogee: s.apogee,
-                inclination: s.inclination,
-                raan: s.raan,
-                arg_perigee: s.argPerigee,
-                mean_anomaly: M,
-            };
-        });
-        setStatus('Computing ' + payload.length + ' orbits ...');
-        const res = await fetch('/api/compute-constellation', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ satellites: payload, num_orbits: 2, points_per_orbit: 90 }),
-        });
-        if (!res.ok) {
-            let msg = res.statusText;
-            try { const err = await res.json(); msg = err.error || msg; } catch (e) {}
-            alert('Constellation compute failed: ' + msg);
-            return;
-        }
-        const data = await res.json();
-        setupConstellation(data, st, key, all.length);
-        setStatus('Constellation ready: ' + data.satellites.length + ' satellites (' + grp.label + ')');
+        if (all.length === 0) throw new Error('No valid TLE satellites parsed');
+        rawSats = sampleSatellites(all, density);
+        totalCount = all.length;
+        sourceLabel = '在线 CELESTRAK ' + formatUtc(new Date()).substring(0, 10);
     } catch (e) {
-        alert('Constellation load failed: ' + e.message);
-        setStatus('Constellation failed: ' + e.message);
+        // Fallback: local preset snapshot (offline / fetch failure)
+        setStatus('在线获取失败，尝试本地预设 ...');
+        try {
+            const pres = await (await fetch('/static/data/constellation_presets.json')).json();
+            const g = pres.groups && pres.groups[key];
+            if (!g || !g.satellites || !g.satellites.length) throw new Error('preset not found');
+            const all = presetsToRaw(g.satellites);
+            rawSats = sampleSatellites(all, density);
+            totalCount = g.satellites.length;
+            const fetched = (g.fetched_at || pres.generated_at || '').substring(0, 10);
+            sourceLabel = '本地预设 ' + (fetched || '--');
+        } catch (e2) {
+            alert('Constellation load failed (online & preset): ' + e.message);
+            setStatus('Constellation failed: ' + e.message);
+            btn.disabled = false;
+            return;
+        }
     } finally {
         btn.disabled = false;
     }
+    constellationCache = { groupKey: key, density, rawSats, sourceLabel, totalCount };
+    await computeConstellationFromCache();
 }
 
-function setupConstellation(data, epoch, groupKey, totalCount) {
+function presetsToRaw(sats) {
+    return sats.map(s => ({
+        name: String(s.name || 'SAT'),
+        perigee: s.perigee,
+        apogee: s.apogee,
+        inclination: s.inclination,
+        raan: s.raan,
+        argPerigee: s.argPerigee,
+        meanAnomaly: s.meanAnomaly,
+        meanMotion: s.meanMotion,
+        epoch: new Date(s.epoch),
+        e: s.e,
+        a: s.a,
+    }));
+}
+
+async function computeConstellationFromCache() {
+    const cache = constellationCache;
+    if (!cache) return;
+    const key = cache.groupKey;
+    const grp = constellationGroups[key] || constellationGroups['gps-ops'];
+    const prevSelected = selectedSatIndex;
+    const st = getSimTime();
+    setStatus('Computing ' + cache.rawSats.length + ' orbits ...');
+    const payload = cache.rawSats.map(s => {
+        const deltaDays = (st - s.epoch) / 86400000;
+        const M = ((s.meanAnomaly + s.meanMotion * deltaDays * 360) % 360 + 360) % 360;
+        return {
+            name: s.name,
+            perigee: s.perigee,
+            apogee: s.apogee,
+            inclination: s.inclination,
+            raan: s.raan,
+            arg_perigee: s.argPerigee,
+            mean_anomaly: M,
+        };
+    });
+    const res = await fetch('/api/compute-constellation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ satellites: payload, num_orbits: 2, points_per_orbit: 90 }),
+    });
+    if (!res.ok) {
+        let msg = res.statusText;
+        try { const err = await res.json(); msg = err.error || msg; } catch (e) {}
+        alert('Constellation compute failed: ' + msg);
+        return;
+    }
+    const data = await res.json();
+    setupConstellation(data, st, key, cache.totalCount, cache.sourceLabel);
+    if (prevSelected >= 0 && prevSelected < data.satellites.length) {
+        selectSatellite(prevSelected);
+    }
+    setStatus('Constellation ready: ' + data.satellites.length + ' satellites (' + grp.label + ') - ' + cache.sourceLabel);
+}
+
+async function rebuildConstellationFromCache() {
+    if (!constellationCache) return;
+    await computeConstellationFromCache();
+}
+
+function setupConstellation(data, epoch, groupKey, totalCount, sourceLabel) {
     clearConstellationVisuals();
     constellationMode = true;
     constellationGroupKey = groupKey;
@@ -1406,6 +1513,17 @@ function setupConstellation(data, epoch, groupKey, totalCount) {
     hasOrbit = false;
     orbitCurve3D = null;
     orbitGroup.visible = false;
+    // Remove any leftover single-satellite 2D/coverage visuals
+    groundTrackLayer.clearLayers();
+    if (leafletSatMarker2D) {
+        leafletMap.removeLayer(leafletSatMarker2D);
+        leafletSatMarker2D = null;
+    }
+    coverage3DGroup.visible = false;
+    coverageConeGroup.visible = false;
+    setD3Path('coverageFill', null);
+    setD3Path('coverageLine', null);
+    constellationSourceLabel = sourceLabel || '';
     selectedSatIndex = -1;
 
     const grp = constellationGroups[groupKey] || constellationGroups['gps-ops'];
@@ -1462,11 +1580,13 @@ function setupConstellation(data, epoch, groupKey, totalCount) {
         ['星座 Constellation', grp.label],
         ['组内卫星总数 Total in group', totalCount],
         ['显示数量 Displayed', sats.length],
+        ['数据源 Source', constellationSourceLabel || '--'],
         ['周期范围 Period range', minP.toFixed(1) + ' - ' + maxP.toFixed(1) + ' min'],
         ['提示 Tip', '点击 2D 地图标记切换跟踪卫星'],
     ].map(([label, value]) =>
         `<div class="row"><span class="label">${label}</span><span class="value">${value}</span></div>`
     ).join('');
+    populateSatSelect();
     selectSatellite(0);
 }
 
@@ -1477,6 +1597,7 @@ function showSatelliteDetails(i) {
     const rows = [
         ['卫星 Name', s.name],
         ['星座 Group', grp.label || constellationGroupKey],
+        ['数据源 Source', constellationSourceLabel || '--'],
         ['半长轴 Semi-major axis', el.semi_major_axis.toLocaleString() + ' km'],
         ['偏心率 Eccentricity', el.eccentricity],
         ['周期 Period', el.period_min.toLocaleString() + ' min'],
@@ -1503,6 +1624,9 @@ function selectSatellite(i) {
         m.material.opacity = k === i ? 1 : 0.8;
         m.material.transparent = true;
     });
+    const sel = document.getElementById('constellationSatSelect');
+    if (sel && sel.options.length > i) sel.value = String(i);
+    document.getElementById('btnViewSingle').disabled = false;
     showSatelliteDetails(i);
 }
 
@@ -1516,19 +1640,124 @@ function clearConstellationVisuals() {
     constellation = null;
     constellationMode = false;
     selectedSatIndex = -1;
+    clearSatSelect();
 }
 
 function clearConstellation() {
     if (!constellationMode && !constellation) return;
-    clearConstellationVisuals();
+    setUiMode('single');
+    setStatus('Constellation cleared - single-satellite mode');
+}
+
+function restoreSingleVisuals() {
     orbitGroup.visible = true;
     if (lastSingleData) {
         updateOrbit3D(lastSingleData);
         updateGroundTrack2D(lastSingleData);
         updateResults(lastSingleData);
     }
-    setStatus('Constellation cleared - single-satellite mode');
 }
+
+function setUiMode(mode) {
+    uiMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(b =>
+        b.classList.toggle('active', b.dataset.mode === mode)
+    );
+    document.getElementById('orbitForm').style.display = mode === 'single' ? '' : 'none';
+    document.getElementById('presetsSection').style.display = mode === 'single' ? '' : 'none';
+    document.getElementById('constellationSection').style.display = mode === 'constellation' ? '' : 'none';
+    if (mode === 'constellation') {
+        if (!constellation && constellationCache) {
+            setStatus('Rebuilding constellation ...');
+            rebuildConstellationFromCache();
+        } else if (!constellation) {
+            resultsContent.innerHTML =
+                '<div class="row"><span class="label">提示 Tip</span><span class="value">请点击 Load 加载星座</span></div>';
+            setStatus('Constellation mode - click Load to fetch a group');
+        } else {
+            populateSatSelect();
+        }
+    } else {
+        if (constellationMode || constellation) {
+            clearConstellationVisuals();
+            restoreSingleVisuals();
+        }
+        clearSatSelect();
+    }
+}
+
+function populateSatSelect() {
+    const sel = document.getElementById('constellationSatSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+    if (!constellation) {
+        sel.disabled = true;
+        document.getElementById('btnViewSingle').disabled = true;
+        return;
+    }
+    constellation.sats.forEach((s, i) => {
+        const opt = document.createElement('option');
+        opt.value = String(i);
+        opt.textContent = s.name + ' [' + i + ']';
+        sel.appendChild(opt);
+    });
+    sel.disabled = false;
+    sel.value = String(Math.max(0, selectedSatIndex));
+    document.getElementById('btnViewSingle').disabled = false;
+}
+
+function clearSatSelect() {
+    const sel = document.getElementById('constellationSatSelect');
+    if (sel) {
+        sel.innerHTML = '<option value="">-- 加载星座后选择 --</option>';
+        sel.disabled = true;
+    }
+    document.getElementById('btnViewSingle').disabled = true;
+}
+
+function viewSelectedAsSingle() {
+    if (!constellation || selectedSatIndex < 0) return;
+    const raw = constellationCache && constellationCache.rawSats[selectedSatIndex];
+    if (!raw) {
+        alert('缺少该星的轨道参数缓存');
+        return;
+    }
+    const st = getSimTime();
+    document.getElementById('perigee').value = raw.perigee.toFixed(1);
+    document.getElementById('apogee').value = raw.apogee.toFixed(1);
+    document.getElementById('inclination').value = raw.inclination.toFixed(4);
+    document.getElementById('raan').value = raw.raan.toFixed(4);
+    document.getElementById('argPerigee').value = raw.argPerigee.toFixed(4);
+    document.getElementById('numOrbits').value = 3;
+    document.getElementById('epochInput').value = formatUtc(raw.epoch);
+    hasTLE = true;
+    M0_at_epoch = raw.meanAnomaly;
+    nRevPerDay = raw.meanMotion;
+    epochDate = raw.epoch;
+    currentEpoch = st;
+    singleSatName = raw.name;
+    setUiMode('single');
+    const deltaDays = (st - raw.epoch) / 86400000;
+    const M = ((raw.meanAnomaly + raw.meanMotion * deltaDays * 360) % 360 + 360) % 360;
+    computeOrbit({
+        perigee: raw.perigee,
+        apogee: raw.apogee,
+        inclination: raw.inclination,
+        raan: raw.raan,
+        arg_perigee: raw.argPerigee,
+        num_orbits: 3,
+        mean_anomaly: M,
+    });
+}
+
+document.querySelectorAll('.mode-btn').forEach(b => {
+    b.addEventListener('click', () => setUiMode(b.dataset.mode));
+});
+document.getElementById('constellationSatSelect').addEventListener('change', (e) => {
+    const v = parseInt(e.target.value, 10);
+    if (!isNaN(v)) selectSatellite(v);
+});
+document.getElementById('btnViewSingle').addEventListener('click', viewSelectedAsSingle);
 
 function getEciAtTime(s, elapsedSec) {
     const n = s.anim.x.length;
@@ -1543,6 +1772,67 @@ function getEciAtTime(s, elapsedSec) {
         s.anim.y[i0] + (s.anim.y[i1] - s.anim.y[i0]) * t,
         s.anim.z[i0] + (s.anim.z[i1] - s.anim.z[i0]) * t,
     ];
+}
+
+// ── Constellation coverage overlap heatmap (2D) ──
+function updateCoverageHeatmap(simElapsed, thetaGP) {
+    if (!constellationMode || !constellation || !coverageEnabled) {
+        covHeatCtx.clearRect(0, 0, covHeatCanvas.width || 1, covHeatCanvas.height || 1);
+        return;
+    }
+    const W = map2dEl.clientWidth, H = map2dEl.clientHeight;
+    if (W <= 0 || H <= 0) return;
+    const scale = 0.5;
+    const cw = Math.max(2, Math.round(W * scale));
+    const ch = Math.max(2, Math.round(H * scale));
+    if (covAccCanvas.width !== cw) covAccCanvas.width = cw;
+    if (covAccCanvas.height !== ch) covAccCanvas.height = ch;
+    covAccCtx.clearRect(0, 0, cw, ch);
+    covAccCtx.fillStyle = 'rgb(1,1,1)';
+
+    const sats = constellation.sats;
+    for (let i = 0; i < sats.length; i++) {
+        const s = sats[i];
+        const [eciX, eciY, eciZ] = getEciAtTime(s, simElapsed);
+        const alt = Math.sqrt(eciX * eciX + eciY * eciY + eciZ * eciZ) - R_EARTH;
+        if (alt <= 0) continue;
+        const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
+        if (!isFinite(lat) || !isFinite(lon)) continue;
+        const pts = computeCoverageCircle(lat, lon, coverageElevation, alt);
+        if (pts.length === 0) continue;
+        covAccCtx.beginPath();
+        for (let j = 0; j < pts.length; j++) {
+            const cp = leafletMap.latLngToContainerPoint([pts[j].lat, pts[j].lon]);
+            const x = cp.x * scale, y = cp.y * scale;
+            if (j === 0) covAccCtx.moveTo(x, y);
+            else covAccCtx.lineTo(x, y);
+        }
+        covAccCtx.closePath();
+        covAccCtx.fill();
+    }
+
+    const imgData = covAccCtx.getImageData(0, 0, cw, ch);
+    const px = imgData.data;
+    for (let p = 0; p < px.length; p += 4) {
+        const c = px[p];
+        if (c === 0) {
+            px[p + 3] = 0;
+            continue;
+        }
+        let r, g, b, a;
+        if (c === 1) { r = 0; g = 120; b = 255; a = 150; }
+        else if (c === 2) { r = 0; g = 200; b = 220; a = 160; }
+        else if (c === 3) { r = 30; g = 220; b = 100; a = 170; }
+        else if (c === 4) { r = 255; g = 190; b = 0; a = 180; }
+        else { r = 255; g = 60; b = 60; a = 195; }
+        px[p] = r; px[p + 1] = g; px[p + 2] = b; px[p + 3] = a;
+    }
+    covAccCtx.putImageData(imgData, 0, 0);
+    if (covHeatCanvas.width !== W) covHeatCanvas.width = W;
+    if (covHeatCanvas.height !== H) covHeatCanvas.height = H;
+    covHeatCtx.clearRect(0, 0, W, H);
+    covHeatCtx.imageSmoothingEnabled = true;
+    covHeatCtx.drawImage(covAccCanvas, 0, 0, cw, ch, 0, 0, W, H);
 }
 
 document.getElementById('btnLoadConstellation').addEventListener('click', loadConstellation);
@@ -1650,6 +1940,7 @@ function animateSingleSat(fraction) {
     }
 
     // Animate 2D terminator — sync with 3D Earth rotation
+    updateCoverageHeatmap(simElapsed, thetaGP);
     const gstNow = ((earthGroup.rotation.y * 180 / Math.PI) % 360 + 360) % 360;
     updateTerminatorDynamic(gstNow);
 }
@@ -1673,6 +1964,8 @@ function animateConstellation(fraction) {
         ? ((getGST(currentEpoch) % 360) * Math.PI / 180 + OMEGA_E * simElapsed)
         : OMEGA_E * simElapsed;
     earthGroup.rotation.y = thetaGP;
+    lastSimElapsed = simElapsed;
+    lastThetaGP = thetaGP;
 
     const showTrails = document.getElementById('toggleTrails').checked;
     const n = constellation.sats.length;
@@ -1700,6 +1993,26 @@ function animateConstellation(fraction) {
         } else if (!showTrails && constellationTrails[i].getLatLngs().length > 0) {
             constellationTrails[i].setLatLngs([]);
         }
+    }
+
+    // Coverage: 2D overlap heatmap (throttled) + selected satellite 3D/2D outline
+    covHeatFrame++;
+    if (covHeatFrame % 8 === 0) updateCoverageHeatmap(simElapsed, thetaGP);
+    if (coverageEnabled && selectedSatIndex >= 0) {
+        const s = constellation.sats[selectedSatIndex];
+        const [eciX, eciY, eciZ] = getEciAtTime(s, simElapsed);
+        const dist = Math.sqrt(eciX * eciX + eciY * eciY + eciZ * eciZ);
+        const alt = dist - R_EARTH;
+        const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
+        if (alt > 0 && isFinite(lat) && isFinite(lon)) {
+            earthGroup.updateMatrixWorld();
+            updateCoverage(lat, lon, alt, eciX, eciY, eciZ, thetaGP);
+        }
+    } else {
+        coverage3DGroup.visible = false;
+        coverageConeGroup.visible = false;
+        setD3Path('coverageFill', null);
+        setD3Path('coverageLine', null);
     }
 
     const gstNow = ((thetaGP * 180 / Math.PI) % 360 + 360) % 360;
