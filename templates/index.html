@@ -1570,7 +1570,7 @@ function setupConstellation(data, epoch, groupKey, totalCount, sourceLabel) {
     numOrbitsAnim = data.num_orbits || 2;
     animStartTime = performance.now() / 1000;
     isPaused = false;
-    btnPause.innerHTML = '\u9646\u9646';
+    btnPause.innerHTML = '\u25AE\u25AE';
     progSlider.value = 0;
     progTimeLabel.textContent = 'T+00:00:00 / ' + (epoch ? formatUtc(epoch) : '----') + ' UTC';
 
@@ -1789,6 +1789,7 @@ function updateCoverageHeatmap(simElapsed, thetaGP) {
     if (covAccCanvas.height !== ch) covAccCanvas.height = ch;
     covAccCtx.clearRect(0, 0, cw, ch);
     covAccCtx.fillStyle = 'rgb(1,1,1)';
+    covAccCtx.globalCompositeOperation = 'lighter';
 
     const sats = constellation.sats;
     for (let i = 0; i < sats.length; i++) {
@@ -1810,6 +1811,7 @@ function updateCoverageHeatmap(simElapsed, thetaGP) {
         covAccCtx.closePath();
         covAccCtx.fill();
     }
+    covAccCtx.globalCompositeOperation = 'source-over';
 
     const imgData = covAccCtx.getImageData(0, 0, cw, ch);
     const px = imgData.data;
@@ -1995,25 +1997,9 @@ function animateConstellation(fraction) {
         }
     }
 
-    // Coverage: 2D overlap heatmap (throttled) + selected satellite 3D/2D outline
+    // Coverage: 2D overlap heatmap for all satellites (no selection required)
     covHeatFrame++;
     if (covHeatFrame % 8 === 0) updateCoverageHeatmap(simElapsed, thetaGP);
-    if (coverageEnabled && selectedSatIndex >= 0) {
-        const s = constellation.sats[selectedSatIndex];
-        const [eciX, eciY, eciZ] = getEciAtTime(s, simElapsed);
-        const dist = Math.sqrt(eciX * eciX + eciY * eciY + eciZ * eciZ);
-        const alt = dist - R_EARTH;
-        const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
-        if (alt > 0 && isFinite(lat) && isFinite(lon)) {
-            earthGroup.updateMatrixWorld();
-            updateCoverage(lat, lon, alt, eciX, eciY, eciZ, thetaGP);
-        }
-    } else {
-        coverage3DGroup.visible = false;
-        coverageConeGroup.visible = false;
-        setD3Path('coverageFill', null);
-        setD3Path('coverageLine', null);
-    }
 
     const gstNow = ((thetaGP * 180 / Math.PI) % 360 + 360) % 360;
     updateTerminatorDynamic(gstNow);
