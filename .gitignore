@@ -1,3 +1,10 @@
 __pycache__/
 *.pyc
 *.log
+
+# Reasonix tool metadata (local only)
+.reasonix/
+reasonix.toml
+
+# Map tiles: large binary assets, generated/downloaded locally (see scripts/)
+static/tiles/
