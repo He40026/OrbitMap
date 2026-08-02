@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Orbit Visualization 轨道可视化 - 3D + Mercator</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="icon" href="/static/favicon.ico">
+<link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css" />
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif; background: #0f0f1a; color: #ddd; overflow: hidden; }
@@ -206,6 +207,37 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
             </div>
         </div>
 
+        <div class="coverage-section" style="margin-top:12px;padding-top:10px;border-top:1px solid #2a2a4a;">
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.76em;color:#aab;margin-bottom:6px;">
+                <span>Constellation 星座跟踪</span>
+            </label>
+            <div class="form-group" style="margin-bottom:4px;">
+                <label>Group 星座组</label>
+                <select id="constellationSelect" style="width:100%;padding:5px 6px;background:#252540;border:1px solid #3a3a5a;color:#eee;border-radius:4px;font-size:0.78em;">
+                    <option value="gps-ops">GPS 全球定位</option>
+                    <option value="beidou">北斗 BeiDou</option>
+                    <option value="weather">风云/气象 Weather</option>
+                    <option value="starlink">星链 Starlink</option>
+                    <option value="iridium">铱星 Iridium</option>
+                    <option value="galileo">伽利略 Galileo</option>
+                    <option value="glo-ops">格洛纳斯 GLONASS</option>
+                    <option value="oneweb">OneWeb</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom:4px;">
+                <label>Max Sats 采样数量: <span id="densityLabel">60</span></label>
+                <input type="range" id="constellationDensity" min="10" max="200" value="60" step="10" style="width:100%;">
+            </div>
+            <div style="display:flex; gap:6px;">
+                <button type="button" id="btnLoadConstellation" style="flex:1;padding:7px;background:#3a4a5a;color:#ccc;border:1px solid #4a5a6a;border-radius:4px;font-size:0.76em;cursor:pointer;">Load 加载星座</button>
+                <button type="button" id="btnClearConstellation" style="flex:1;padding:7px;background:#4a3a3a;color:#ccc;border:1px solid #6a4a4a;border-radius:4px;font-size:0.76em;cursor:pointer;">Clear 清除</button>
+            </div>
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.76em;color:#aab;cursor:pointer;margin-top:6px;">
+                <input type="checkbox" id="toggleTrails" checked style="accent-color:#4a5aff;">
+                <span>Ground Trails 星下点轨迹</span>
+            </label>
+        </div>
+
         <div id="results">
             <h4>Orbital Elements 轨道参数</h4>
             <div id="resultsContent" style="color:#666;">Press Compute to see results<br>点击"计算轨道"查看结果</div>
@@ -236,12 +268,12 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
 <script type="importmap">
 {
     "imports": {
-        "three": "https://unpkg.com/three@0.157.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.157.0/examples/jsm/"
+        "three": "/static/vendor/three/three.module.js",
+        "three/addons/": "/static/vendor/three/"
     }
 }
 </script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/static/vendor/leaflet/leaflet.js"></script>
 <script src="/static/vendor/d3-array.min.js"></script>
 <script src="/static/vendor/d3-geo.min.js"></script>
 
@@ -275,6 +307,12 @@ let currentEpoch = null;
 let coverageEnabled = false;
 let coverageElevation = 10;
 let oldCoverageElevation = 10;
+// Constellation state (3D group is created later, after the scene exists)
+let constellationMode = false;
+let constellationGroupKey = null;
+let constellation = null;
+let selectedSatIndex = -1;
+let lastSingleData = null;
 
 function formatUtc(date) {
     return date.toISOString().replace('T', ' ').substring(0, 19);
@@ -305,6 +343,10 @@ speedSlider.addEventListener('input', () => {
     speedLabel.textContent = animSpeedSec + 's';
 });
 
+document.getElementById('constellationDensity').addEventListener('input', (e) => {
+    document.getElementById('densityLabel').textContent = e.target.value;
+});
+
 progSlider.addEventListener('input', () => {
     isScrubbing = true;
 });
@@ -333,7 +375,8 @@ const tileProviders = {
     satellite: {
         url: '/static/tiles/esri/{z}/{x}/{y}.png',
         attr: '&copy; Esri (offline)',
-        maxZoom: 5, minZoom: 0
+        maxZoom: 5, minZoom: 0,
+        errorTileUrl: '/static/placeholder.png'
     }
 };
 
@@ -356,7 +399,8 @@ function setTileLayer(key) {
         maxZoom: prov.maxZoom,
         minZoom: prov.minZoom != null ? prov.minZoom : 2,
         attribution: prov.attr,
-        noWrap: true
+        noWrap: true,
+        errorTileUrl: prov.errorTileUrl
     }).addTo(leafletMap);
     document.querySelectorAll('.tile-btn').forEach(b => b.classList.remove('active'));
     const btn = document.querySelector(`.tile-btn[data-tile="${key}"]`);
@@ -477,7 +521,7 @@ scene.add(earthGroup);
 
 const texLoader = new THREE.TextureLoader();
 texLoader.load(
-    'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
+    '/static/vendor/textures/earth-blue-marble.jpg',
     (tex) => { earthMat.map = tex; earthMat.color.set(0xffffff); earthMat.needsUpdate = true; },
     undefined,
     () => { earthMat.color.set(0x2E86C1); earthMat.needsUpdate = true; }
@@ -916,7 +960,10 @@ function parseAndApplyTLE(text) {
 
 const orbitInputs = ['perigee', 'apogee', 'inclination', 'raan', 'argPerigee'];
 orbitInputs.forEach(id => {
-    document.getElementById(id).addEventListener('input', () => { hasTLE = false; });
+    document.getElementById(id).addEventListener('input', () => {
+        hasTLE = false;
+        if (constellationMode) clearConstellation();
+    });
 });
 
 // ── Helpers ──
@@ -1138,6 +1185,7 @@ function updateResults(data) {
 
 // ── API call ──
 async function computeOrbit(params) {
+    if (constellationMode) clearConstellation();
     setStatus(`Computing: p=${params.perigee} a=${params.apogee} i=${params.inclination} raan=${params.raan} w=${params.arg_perigee} ...`);
     btnCompute.disabled = true;
     btnCompute.textContent = 'Computing 计算中...';
@@ -1155,6 +1203,7 @@ async function computeOrbit(params) {
             return;
         }
         const data = await resp.json();
+        lastSingleData = data;
         setStatus('Rendering 渲染中...');
         updateOrbit3D(data);
         updateGroundTrack2D(data);
@@ -1240,104 +1289,421 @@ presetBtns.forEach(btn => {
     });
 });
 
+// ── Constellation tracking ──
+const constellationGroups = {
+    'gps-ops':  { label: 'GPS 全球定位',        color: '#00ffcc', color3d: 0x00ffcc },
+    'beidou':   { label: '北斗 BeiDou',         color: '#ffaa00', color3d: 0xffaa00 },
+    'weather':  { label: '风云/气象 Weather',   color: '#88ccff', color3d: 0x88ccff },
+    'starlink': { label: '星链 Starlink',       color: '#c49bff', color3d: 0xc49bff },
+    'iridium':  { label: '铱星 Iridium',        color: '#ff6688', color3d: 0xff6688 },
+    'galileo':  { label: '伽利略 Galileo',      color: '#66ff88', color3d: 0x66ff88 },
+    'glo-ops':  { label: '格洛纳斯 GLONASS',    color: '#ffdd66', color3d: 0xffdd66 },
+    'oneweb':   { label: 'OneWeb',              color: '#88ffff', color3d: 0x88ffff },
+};
+
+const constellationGroup3D = new THREE.Group();
+scene.add(constellationGroup3D);
+let constellationMarkers3D = [];
+let constellationMarkers2D = [];
+let constellationTrails = [];
+
+function parseTLEList(text) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
+    const sats = [];
+    let i = 0;
+    while (i < lines.length) {
+        let name = '', l1 = '', l2 = '';
+        if (lines[i].startsWith('1 ') && i + 1 < lines.length && lines[i + 1].startsWith('2 ')) {
+            l1 = lines[i]; l2 = lines[i + 1]; i += 2;
+        } else if (i + 2 < lines.length && lines[i + 1].startsWith('1 ') && lines[i + 2].startsWith('2 ')) {
+            name = lines[i]; l1 = lines[i + 1]; l2 = lines[i + 2]; i += 3;
+        } else {
+            i += 1;
+            continue;
+        }
+        try {
+            const t = parseTLE([name, l1, l2].filter(Boolean).join('\n'));
+            t.name = (name || ('SAT-' + String(sats.length + 1).padStart(3, '0'))).replace(/[<>&]/g, '');
+            sats.push(t);
+        } catch (e) { /* skip malformed TLE entries */ }
+    }
+    return sats;
+}
+
+function sampleSatellites(sats, maxN) {
+    if (sats.length <= maxN) return sats;
+    const out = [];
+    for (let i = 0; i < maxN; i++) {
+        out.push(sats[Math.floor(i * sats.length / maxN)]);
+    }
+    return out;
+}
+
+async function loadConstellation() {
+    const key = document.getElementById('constellationSelect').value;
+    const density = parseInt(document.getElementById('constellationDensity').value, 10) || 60;
+    const grp = constellationGroups[key] || constellationGroups['gps-ops'];
+    const btn = document.getElementById('btnLoadConstellation');
+    btn.disabled = true;
+    setStatus('Fetching TLE group: ' + key + ' ...');
+    try {
+        const resp = await fetch('/api/fetch-tle?group=' + encodeURIComponent(key));
+        if (!resp.ok) {
+            let msg = resp.statusText;
+            try { const err = await resp.json(); msg = err.error || msg; } catch (e) {}
+            alert('Failed to load group: ' + msg);
+            return;
+        }
+        const text = await resp.text();
+        const all = parseTLEList(text);
+        if (all.length === 0) {
+            alert('No valid TLE satellites parsed from group ' + key);
+            return;
+        }
+        const sats = sampleSatellites(all, density);
+        const st = getSimTime();
+        const payload = sats.map(s => {
+            const deltaDays = (st - s.epoch) / 86400000;
+            const M = ((s.meanAnomaly + s.meanMotion * deltaDays * 360) % 360 + 360) % 360;
+            return {
+                name: s.name,
+                perigee: s.perigee,
+                apogee: s.apogee,
+                inclination: s.inclination,
+                raan: s.raan,
+                arg_perigee: s.argPerigee,
+                mean_anomaly: M,
+            };
+        });
+        setStatus('Computing ' + payload.length + ' orbits ...');
+        const res = await fetch('/api/compute-constellation', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ satellites: payload, num_orbits: 2, points_per_orbit: 90 }),
+        });
+        if (!res.ok) {
+            let msg = res.statusText;
+            try { const err = await res.json(); msg = err.error || msg; } catch (e) {}
+            alert('Constellation compute failed: ' + msg);
+            return;
+        }
+        const data = await res.json();
+        setupConstellation(data, st, key, all.length);
+        setStatus('Constellation ready: ' + data.satellites.length + ' satellites (' + grp.label + ')');
+    } catch (e) {
+        alert('Constellation load failed: ' + e.message);
+        setStatus('Constellation failed: ' + e.message);
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+function setupConstellation(data, epoch, groupKey, totalCount) {
+    clearConstellationVisuals();
+    constellationMode = true;
+    constellationGroupKey = groupKey;
+    currentEpoch = epoch;
+    hasOrbit = false;
+    orbitCurve3D = null;
+    orbitGroup.visible = false;
+    selectedSatIndex = -1;
+
+    const grp = constellationGroups[groupKey] || constellationGroups['gps-ops'];
+    const sats = data.satellites;
+    constellation = {
+        sats: sats,
+        duration: data.sim_duration || 7200,
+        numOrbits: data.num_orbits || 2,
+    };
+    const markerGeo = new THREE.SphereGeometry(70, 12, 12);
+
+    sats.forEach((s, i) => {
+        s.periodSec = s.orbital_elements.period_min * 60;
+        // 3D orbit ring
+        const ringPts = [];
+        for (let j = 0; j < s.orbit_ring.x.length; j++) {
+            ringPts.push(eciToThree(s.orbit_ring.x[j], s.orbit_ring.y[j], s.orbit_ring.z[j]));
+        }
+        if (ringPts.length >= 2) {
+            constellationGroup3D.add(new THREE.Line(
+                new THREE.BufferGeometry().setFromPoints(ringPts),
+                new THREE.LineBasicMaterial({ color: grp.color3d, transparent: true, opacity: 0.22 })
+            ));
+        }
+        // 3D marker
+        const mesh = new THREE.Mesh(markerGeo, new THREE.MeshBasicMaterial({ color: grp.color3d }));
+        mesh.userData.satIndex = i;
+        constellationGroup3D.add(mesh);
+        constellationMarkers3D.push(mesh);
+        // 2D marker
+        const cm = L.circleMarker([0, 0], {
+            radius: 3, color: grp.color, weight: 1,
+            fillColor: grp.color, fillOpacity: 0.85,
+        });
+        cm.on('click', () => selectSatellite(i));
+        cm.addTo(leafletMap);
+        constellationMarkers2D.push(cm);
+        // Ground trail polyline
+        const trail = L.polyline([], { color: grp.color, weight: 1, opacity: 0.35 });
+        trail.addTo(leafletMap);
+        constellationTrails.push(trail);
+    });
+
+    numOrbitsAnim = data.num_orbits || 2;
+    animStartTime = performance.now() / 1000;
+    isPaused = false;
+    btnPause.innerHTML = '\u9646\u9646';
+    progSlider.value = 0;
+    progTimeLabel.textContent = 'T+00:00:00 / ' + (epoch ? formatUtc(epoch) : '----') + ' UTC';
+
+    const periods = sats.map(s => s.orbital_elements.period_min);
+    const minP = Math.min(...periods), maxP = Math.max(...periods);
+    resultsContent.innerHTML = [
+        ['星座 Constellation', grp.label],
+        ['组内卫星总数 Total in group', totalCount],
+        ['显示数量 Displayed', sats.length],
+        ['周期范围 Period range', minP.toFixed(1) + ' - ' + maxP.toFixed(1) + ' min'],
+        ['提示 Tip', '点击 2D 地图标记切换跟踪卫星'],
+    ].map(([label, value]) =>
+        `<div class="row"><span class="label">${label}</span><span class="value">${value}</span></div>`
+    ).join('');
+    selectSatellite(0);
+}
+
+function showSatelliteDetails(i) {
+    const s = constellation.sats[i];
+    const el = s.orbital_elements;
+    const grp = constellationGroups[constellationGroupKey] || {};
+    const rows = [
+        ['卫星 Name', s.name],
+        ['星座 Group', grp.label || constellationGroupKey],
+        ['半长轴 Semi-major axis', el.semi_major_axis.toLocaleString() + ' km'],
+        ['偏心率 Eccentricity', el.eccentricity],
+        ['周期 Period', el.period_min.toLocaleString() + ' min'],
+        ['近地点 Perigee alt', el.perigee_alt.toLocaleString() + ' km'],
+        ['远地点 Apogee alt', el.apogee_alt.toLocaleString() + ' km'],
+    ];
+    resultsContent.innerHTML = rows.map(([label, value]) =>
+        `<div class="row"><span class="label">${label}</span><span class="value">${value}</span></div>`
+    ).join('');
+}
+
+function selectSatellite(i) {
+    if (!constellation || i < 0 || i >= constellation.sats.length) return;
+    selectedSatIndex = i;
+    constellationMarkers2D.forEach((m, k) => {
+        m.setStyle({
+            radius: k === i ? 6 : 3,
+            weight: k === i ? 2 : 1,
+            fillOpacity: k === i ? 1 : 0.7,
+        });
+    });
+    constellationMarkers3D.forEach((m, k) => {
+        m.scale.setScalar(k === i ? 2.2 : 1);
+        m.material.opacity = k === i ? 1 : 0.8;
+        m.material.transparent = true;
+    });
+    showSatelliteDetails(i);
+}
+
+function clearConstellationVisuals() {
+    clearGroup(constellationGroup3D);
+    constellationMarkers2D.forEach(m => leafletMap.removeLayer(m));
+    constellationTrails.forEach(t => leafletMap.removeLayer(t));
+    constellationMarkers2D = [];
+    constellationTrails = [];
+    constellationMarkers3D = [];
+    constellation = null;
+    constellationMode = false;
+    selectedSatIndex = -1;
+}
+
+function clearConstellation() {
+    if (!constellationMode && !constellation) return;
+    clearConstellationVisuals();
+    orbitGroup.visible = true;
+    if (lastSingleData) {
+        updateOrbit3D(lastSingleData);
+        updateGroundTrack2D(lastSingleData);
+        updateResults(lastSingleData);
+    }
+    setStatus('Constellation cleared - single-satellite mode');
+}
+
+function getEciAtTime(s, elapsedSec) {
+    const n = s.anim.x.length;
+    const total = s.periodSec * (constellation ? constellation.numOrbits : 1);
+    const frac = (((elapsedSec % total) + total) % total) / total;
+    const idx = frac * (n - 1);
+    const i0 = Math.floor(idx);
+    const i1 = Math.min(i0 + 1, n - 1);
+    const t = idx - i0;
+    return [
+        s.anim.x[i0] + (s.anim.x[i1] - s.anim.x[i0]) * t,
+        s.anim.y[i0] + (s.anim.y[i1] - s.anim.y[i0]) * t,
+        s.anim.z[i0] + (s.anim.z[i1] - s.anim.z[i0]) * t,
+    ];
+}
+
+document.getElementById('btnLoadConstellation').addEventListener('click', loadConstellation);
+document.getElementById('btnClearConstellation').addEventListener('click', clearConstellation);
+
 // ── Render loop with animation ──
 function animate(timestamp) {
     requestAnimationFrame(animate);
 
-    // Update satellite animation
-    if (hasOrbit && orbitCurve3D) {
-        const nowSec = timestamp / 1000;
-        let fraction, simElapsed;
-        if (isScrubbing || isPaused) {
-            fraction = parseInt(progSlider.value) / 1000;
-        } else {
-            const totalAnimTime = animSpeedSec * numOrbitsAnim;
-            fraction = (nowSec - animStartTime) / totalAnimTime;
-            if (fraction >= 1) {
-                fraction = 1;
-                isPaused = true;
-                btnPause.innerHTML = '\u25B6';
-            }
-                progSlider.value = Math.round(fraction * 1000);
-            }
-            simElapsed = fraction * orbitPeriodSec * numOrbitsAnim;
-            const tSincePerigee = tOffset + simElapsed;
-
-            // Update time display
-            const elapsedStr = formatElapsed(tSincePerigee);
-            let utcStr = '----';
-            if (currentEpoch && !isNaN(currentEpoch.getTime())) {
-                const utcMs = currentEpoch.getTime() + (tSincePerigee - tOffset) * 1000;
-                const utcDate = new Date(utcMs);
-                utcStr = formatUtc(utcDate);
-                progTimeLabel.textContent = elapsedStr + ' / ' + utcStr + ' UTC';
-                const dateStr = utcDate.toISOString().split('T')[0];
-                if (dateStr !== lastSunDate) {
-                    setSunData(utcDate);
-                    lastSunDate = dateStr;
-                }
-            } else {
-                progTimeLabel.textContent = elapsedStr + ' / ' + utcStr;
-            }
-
-        // 3D satellite position (ECI inertial frame)
-        const [eciX, eciY, eciZ] = getEciPosition(fraction);
-        const satPos3 = eciToThree(eciX, eciY, eciZ);
-        if (satMarkerGroup) {
-            satMarkerGroup.position.copy(satPos3);
+    const nowSec = timestamp / 1000;
+    let fraction;
+    if (isScrubbing || isPaused) {
+        fraction = parseInt(progSlider.value) / 1000;
+    } else {
+        const totalAnimTime = animSpeedSec * numOrbitsAnim;
+        fraction = (nowSec - animStartTime) / totalAnimTime;
+        if (fraction >= 1) {
+            fraction = 1;
+            isPaused = true;
+            btnPause.innerHTML = '\u25B6';
         }
+        progSlider.value = Math.round(fraction * 1000);
+    }
 
-        // Compute Earth rotation angle
-        let thetaGP;
-        if (currentEpoch) {
-            const gstRad = (getGST(currentEpoch) % 360) * Math.PI / 180;
-            thetaGP = gstRad + OMEGA_E * (tSincePerigee - tOffset);
-        } else {
-            thetaGP = OMEGA_E * tSincePerigee;
-        }
-
-        // Ground projection on Earth surface (in Earth's local ECEF frame)
-        const gpMarker = earthGroup.getObjectByName('groundProj');
-        if (gpMarker) {
-            const cosT = Math.cos(thetaGP);
-            const sinT = Math.sin(thetaGP);
-            const x_ecef = eciX * cosT + eciY * sinT;
-            const y_ecef = -eciX * sinT + eciY * cosT;
-            const z_ecef = eciZ;
-            const dist_ecef = Math.sqrt(x_ecef * x_ecef + y_ecef * y_ecef + z_ecef * z_ecef);
-            if (dist_ecef > R_EARTH * 1.001) {
-                const scale = R_EARTH / dist_ecef;
-                gpMarker.position.set(x_ecef * scale, z_ecef * scale, -y_ecef * scale);
-                gpMarker.visible = true;
-            } else {
-                gpMarker.visible = false;
-            }
-        }
-
-        // Rotate Earth eastward (syncs 3D terminator, gpMarker, and 2D marker)
-        earthGroup.rotation.y = thetaGP;
-
-        // 2D satellite marker on Leaflet
-        if (leafletSatMarker2D) {
-            const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
-            leafletSatMarker2D.setLatLng([lat, lon]);
-        }
-        // Coverage footprint (after earthGroup rotation is set)
-        if (hasOrbit) {
-            earthGroup.updateMatrixWorld();
-            const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
-            const dist = Math.sqrt(eciX * eciX + eciY * eciY + eciZ * eciZ);
-            const alt = dist - R_EARTH;
-            if (alt > 0) updateCoverage(lat, lon, alt, eciX, eciY, eciZ, thetaGP);
-        }
-
-        // Animate 2D terminator — sync with 3D Earth rotation
-        const gstNow = ((earthGroup.rotation.y * 180 / Math.PI) % 360 + 360) % 360;
-        updateTerminatorDynamic(gstNow);
+    if (constellationMode && constellation) {
+        animateConstellation(fraction);
+    } else if (hasOrbit && orbitCurve3D) {
+        animateSingleSat(fraction);
     }
 
     controls.update();
     renderer.render(scene, camera);
+}
+
+function animateSingleSat(fraction) {
+    const simElapsed = fraction * orbitPeriodSec * numOrbitsAnim;
+    const tSincePerigee = tOffset + simElapsed;
+
+    // Update time display
+    const elapsedStr = formatElapsed(tSincePerigee);
+    let utcStr = '----';
+    if (currentEpoch && !isNaN(currentEpoch.getTime())) {
+        const utcMs = currentEpoch.getTime() + (tSincePerigee - tOffset) * 1000;
+        const utcDate = new Date(utcMs);
+        utcStr = formatUtc(utcDate);
+        progTimeLabel.textContent = elapsedStr + ' / ' + utcStr + ' UTC';
+        const dateStr = utcDate.toISOString().split('T')[0];
+        if (dateStr !== lastSunDate) {
+            setSunData(utcDate);
+            lastSunDate = dateStr;
+        }
+    } else {
+        progTimeLabel.textContent = elapsedStr + ' / ' + utcStr;
+    }
+
+    // 3D satellite position (ECI inertial frame)
+    const [eciX, eciY, eciZ] = getEciPosition(fraction);
+    const satPos3 = eciToThree(eciX, eciY, eciZ);
+    if (satMarkerGroup) {
+        satMarkerGroup.position.copy(satPos3);
+    }
+
+    // Compute Earth rotation angle
+    let thetaGP;
+    if (currentEpoch) {
+        const gstRad = (getGST(currentEpoch) % 360) * Math.PI / 180;
+        thetaGP = gstRad + OMEGA_E * (tSincePerigee - tOffset);
+    } else {
+        thetaGP = OMEGA_E * tSincePerigee;
+    }
+
+    // Ground projection on Earth surface (in Earth's local ECEF frame)
+    const gpMarker = earthGroup.getObjectByName('groundProj');
+    if (gpMarker) {
+        const cosT = Math.cos(thetaGP);
+        const sinT = Math.sin(thetaGP);
+        const x_ecef = eciX * cosT + eciY * sinT;
+        const y_ecef = -eciX * sinT + eciY * cosT;
+        const z_ecef = eciZ;
+        const dist_ecef = Math.sqrt(x_ecef * x_ecef + y_ecef * y_ecef + z_ecef * z_ecef);
+        if (dist_ecef > R_EARTH * 1.001) {
+            const scale = R_EARTH / dist_ecef;
+            gpMarker.position.set(x_ecef * scale, z_ecef * scale, -y_ecef * scale);
+            gpMarker.visible = true;
+        } else {
+            gpMarker.visible = false;
+        }
+    }
+
+    // Rotate Earth eastward (syncs 3D terminator, gpMarker, and 2D marker)
+    earthGroup.rotation.y = thetaGP;
+
+    // 2D satellite marker on Leaflet
+    const [lat2d, lon2d] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
+    if (leafletSatMarker2D && isFinite(lat2d) && isFinite(lon2d)) {
+        leafletSatMarker2D.setLatLng([lat2d, lon2d]);
+    }
+    // Coverage footprint (after earthGroup rotation is set)
+    if (hasOrbit) {
+        earthGroup.updateMatrixWorld();
+        const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
+        const dist = Math.sqrt(eciX * eciX + eciY * eciY + eciZ * eciZ);
+        const alt = dist - R_EARTH;
+        if (alt > 0) updateCoverage(lat, lon, alt, eciX, eciY, eciZ, thetaGP);
+    }
+
+    // Animate 2D terminator — sync with 3D Earth rotation
+    const gstNow = ((earthGroup.rotation.y * 180 / Math.PI) % 360 + 360) % 360;
+    updateTerminatorDynamic(gstNow);
+}
+
+function animateConstellation(fraction) {
+    const simElapsed = fraction * constellation.duration;
+    const elapsedStr = formatElapsed(simElapsed);
+    let utcStr = '----';
+    if (currentEpoch && !isNaN(currentEpoch.getTime())) {
+        const utcDate = new Date(currentEpoch.getTime() + simElapsed * 1000);
+        utcStr = formatUtc(utcDate);
+        const dateStr = utcDate.toISOString().split('T')[0];
+        if (dateStr !== lastSunDate) {
+            setSunData(utcDate);
+            lastSunDate = dateStr;
+        }
+    }
+    progTimeLabel.textContent = elapsedStr + ' / ' + utcStr + ' UTC';
+
+    const thetaGP = (currentEpoch && !isNaN(currentEpoch.getTime()))
+        ? ((getGST(currentEpoch) % 360) * Math.PI / 180 + OMEGA_E * simElapsed)
+        : OMEGA_E * simElapsed;
+    earthGroup.rotation.y = thetaGP;
+
+    const showTrails = document.getElementById('toggleTrails').checked;
+    const n = constellation.sats.length;
+    const trailsForAll = n <= 60;
+
+    for (let i = 0; i < n; i++) {
+        const s = constellation.sats[i];
+        const [eciX, eciY, eciZ] = getEciAtTime(s, simElapsed);
+        constellationMarkers3D[i].position.copy(eciToThree(eciX, eciY, eciZ));
+        const [lat, lon] = eciToLatLon(eciX, eciY, eciZ, thetaGP);
+        if (isFinite(lat) && isFinite(lon)) {
+            constellationMarkers2D[i].setLatLng([lat, lon]);
+        }
+
+        if (showTrails && (trailsForAll || i === selectedSatIndex)) {
+            const pts = [];
+            for (let k = 7; k >= 0; k--) {
+                const ts = simElapsed - k * 75; // 10-minute trail in 75s steps
+                const [px, py, pz] = getEciAtTime(s, ts);
+                const th = thetaGP - OMEGA_E * (simElapsed - ts);
+                const [tlat, tlon] = eciToLatLon(px, py, pz, th);
+                if (isFinite(tlat) && isFinite(tlon)) pts.push([tlat, tlon]);
+            }
+            constellationTrails[i].setLatLngs(pts);
+        } else if (!showTrails && constellationTrails[i].getLatLngs().length > 0) {
+            constellationTrails[i].setLatLngs([]);
+        }
+    }
+
+    const gstNow = ((thetaGP * 180 / Math.PI) % 360 + 360) % 360;
+    updateTerminatorDynamic(gstNow);
 }
 
 // ── Resize ──
