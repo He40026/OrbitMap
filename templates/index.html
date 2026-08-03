@@ -2246,7 +2246,9 @@ function animateConstellation(fraction) {
                     const [tlat, tlon] = eciToLatLon(px, py, pz, th);
                     if (isFinite(tlat) && isFinite(tlon)) pts.push([tlat, tlon]);
                 }
-                constellationTrails[i].setLatLngs(pts);
+                // Split at the antimeridian so the polyline never draws a
+                // straight line across the whole map (Leaflet multi-polyline).
+                constellationTrails[i].setLatLngs(splitLonWrap(pts));
             }
         } else if (!showTrails && constellationTrails[i].getLatLngs().length > 0) {
             constellationTrails[i].setLatLngs([]);
