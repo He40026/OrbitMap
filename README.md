@@ -13,6 +13,27 @@
 
 ---
 
+## 📑 目录
+
+- [功能特性](#功能特性)
+- [截图](#截图)
+- [快速开始](#快速开始)
+- [星座跟踪](#星座跟踪)
+- [API](#api)
+- [项目结构](#项目结构)
+- [技术说明](#技术说明)
+- [许可证](#许可证)
+
+---
+
+## 📸 截图
+
+![运行截图 1](docs/screenshots/screenshot-1.png)
+
+![运行截图 2](docs/screenshots/screenshot-2.png)
+
+---
+
 ## ✨ 功能特性
 
 | 模块 | 说明 |
@@ -33,7 +54,7 @@ pip install -r requirements.txt
 python app.py          # 启动后自动打开 http://127.0.0.1:5000
 ```
 
-Windows 下可直接双击 `start.bat`。无需联网即可运行:所有前端库均已本地化,瓦片缺失时自动显示离线占位图。
+需要 Python 3.8+。Windows 下可直接双击 `start.bat`:脚本会自动定位 `python`/`py` 启动器,首次运行自动安装缺失依赖,无需联网即可运行——所有前端库均已本地化,瓦片缺失时自动显示离线占位图。
 
 ### 地图瓦片(可选,需联网一次)
 
@@ -84,12 +105,14 @@ static/
   vendor/
     leaflet/                Leaflet JS/CSS/图标(本地化)
     three/                  Three.js 模块与 OrbitControls(本地化)
-  textures/               地球贴图(本地化)
-  d3-array.min.js         d3-array(本地化)
-  d3-geo.min.js           d3-geo(本地化)
+    textures/               地球贴图(本地化)
+    d3-array.min.js         d3-array(本地化)
+    d3-geo.min.js           d3-geo(本地化)
   data/                   星座本地预设快照(constellation_presets.json)
   tiles/                    离线地图瓦片(esri / osm)
   placeholder.png           离线地图占位瓦片(缺失瓦片自动回退)
+docs/
+  screenshots/              运行截图
 scripts/                    工具脚本
   download_esri_tiles.py    Esri 卫星瓦片下载
   download_tiles.py         OSM 瓦片下载
