@@ -1426,6 +1426,7 @@ let constellationFullTrackLayer = L.layerGroup().addTo(leafletMap);
 let trailLengthMode = '3600';
 let trailFrameCounter = 0;
 let trailsDirty = true;
+const SELECTED_TRAIL_COLOR = '#ffdd44'; // bright yellow, matches satellite marker
 
 function parseTLEList(text) {
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
@@ -1704,6 +1705,7 @@ function selectSatellite(i) {
     const sel = document.getElementById('constellationSatSelect');
     if (sel && sel.options.length > i) sel.value = String(i);
     document.getElementById('btnViewSingle').disabled = false;
+    updateTrailStyles();
     updateFullTrack();
     trailsDirty = true;
     showSatelliteDetails(i);
@@ -1727,6 +1729,7 @@ function deselectSatellite() {
     setD3Path('coverageFill', null);
     setD3Path('coverageLine', null);
     constellationFullTrackLayer.clearLayers();
+    updateTrailStyles();
     trailsDirty = true;
     showConstellationSummary();
 }
@@ -1902,13 +1905,24 @@ function updateFullTrack() {
     if (!constellation || selectedSatIndex < 0) return;
     if (!document.getElementById('toggleTrails').checked) return;
     const s = constellation.sats[selectedSatIndex];
-    const grp = constellationGroups[constellationGroupKey] || {};
-    const color = grp.color || '#E74C3C';
     const segs = splitLonWrap(buildFullGroundTrack(s));
     segs.forEach(seg => {
         if (seg.length > 1) {
-            L.polyline(seg, { color, weight: 1.5, opacity: 0.5 }).addTo(constellationFullTrackLayer);
+            L.polyline(seg, { color: SELECTED_TRAIL_COLOR, weight: 2, opacity: 0.6 }).addTo(constellationFullTrackLayer);
         }
+    });
+}
+
+function updateTrailStyles() {
+    if (!constellation) return;
+    const grp = constellationGroups[constellationGroupKey] || {};
+    constellationTrails.forEach((t, i) => {
+        const selected = i === selectedSatIndex;
+        t.setStyle({
+            color: selected ? SELECTED_TRAIL_COLOR : (grp.color || '#00ffcc'),
+            weight: selected ? 2.5 : 1,
+            opacity: selected ? 0.9 : 0.35,
+        });
     });
 }
 
