@@ -288,6 +288,18 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
                 <input type="checkbox" id="toggleTrails" checked style="accent-color:#4a5aff;">
                 <span>Ground Trails 星下点轨迹</span>
             </label>
+            <div class="form-group" style="margin-bottom:4px;margin-top:4px;">
+                <label>Trail Length 轨迹时长</label>
+                <select id="trailLength" style="width:100%;padding:5px 6px;background:#252540;border:1px solid #3a3a5a;color:#eee;border-radius:4px;font-size:0.78em;">
+                    <option value="600">10 分钟</option>
+                    <option value="1800">30 分钟</option>
+                    <option value="3600" selected>1 小时</option>
+                    <option value="10800">3 小时</option>
+                    <option value="21600">6 小时</option>
+                    <option value="full">整段模拟时长</option>
+                </select>
+                <div style="font-size:0.62em;color:#667;margin-top:2px;">选中星额外显示完整地面轨迹（类似单星模式）</div>
+            </div>
         </div>
 
         <div id="results">
@@ -1410,6 +1422,10 @@ scene.add(constellationGroup3D);
 let constellationMarkers3D = [];
 let constellationMarkers2D = [];
 let constellationTrails = [];
+let constellationFullTrackLayer = L.layerGroup().addTo(leafletMap);
+let trailLengthMode = '3600';
+let trailFrameCounter = 0;
+let trailsDirty = true;
 
 function parseTLEList(text) {
     const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l);
@@ -1567,6 +1583,8 @@ function setupConstellation(data, epoch, groupKey, totalCount, sourceLabel) {
     coverageConeGroup.visible = false;
     setD3Path('coverageFill', null);
     setD3Path('coverageLine', null);
+    constellationFullTrackLayer.clearLayers();
+    trailsDirty = true;
     constellationSourceLabel = sourceLabel || '';
     selectedSatIndex = -1;
 
@@ -1686,6 +1704,8 @@ function selectSatellite(i) {
     const sel = document.getElementById('constellationSatSelect');
     if (sel && sel.options.length > i) sel.value = String(i);
     document.getElementById('btnViewSingle').disabled = false;
+    updateFullTrack();
+    trailsDirty = true;
     showSatelliteDetails(i);
 }
 
@@ -1706,6 +1726,8 @@ function deselectSatellite() {
     coverageConeGroup.visible = false;
     setD3Path('coverageFill', null);
     setD3Path('coverageLine', null);
+    constellationFullTrackLayer.clearLayers();
+    trailsDirty = true;
     showConstellationSummary();
 }
 
@@ -1719,6 +1741,7 @@ function clearConstellationVisuals() {
     constellation = null;
     constellationMode = false;
     selectedSatIndex = -1;
+    constellationFullTrackLayer.clearLayers();
     clearSatSelect();
 }
 
@@ -1857,6 +1880,36 @@ function getEciAtTime(s, elapsedSec) {
         s.anim.y[i0] + (s.anim.y[i1] - s.anim.y[i0]) * t,
         s.anim.z[i0] + (s.anim.z[i1] - s.anim.z[i0]) * t,
     ];
+}
+
+// Full multi-orbit ground track for the selected satellite (single-sat style)
+function buildFullGroundTrack(s) {
+    const pts = [];
+    const theta0 = (currentEpoch && !isNaN(currentEpoch.getTime()))
+        ? ((getGST(currentEpoch) % 360) * Math.PI / 180)
+        : 0;
+    const n = s.anim.x.length;
+    for (let j = 0; j < n; j += 2) {
+        const th = theta0 + OMEGA_E * s.anim.t[j];
+        const [lat, lon] = eciToLatLon(s.anim.x[j], s.anim.y[j], s.anim.z[j], th);
+        if (isFinite(lat) && isFinite(lon)) pts.push([lat, lon]);
+    }
+    return pts;
+}
+
+function updateFullTrack() {
+    constellationFullTrackLayer.clearLayers();
+    if (!constellation || selectedSatIndex < 0) return;
+    if (!document.getElementById('toggleTrails').checked) return;
+    const s = constellation.sats[selectedSatIndex];
+    const grp = constellationGroups[constellationGroupKey] || {};
+    const color = grp.color || '#E74C3C';
+    const segs = splitLonWrap(buildFullGroundTrack(s));
+    segs.forEach(seg => {
+        if (seg.length > 1) {
+            L.polyline(seg, { color, weight: 1.5, opacity: 0.5 }).addTo(constellationFullTrackLayer);
+        }
+    });
 }
 
 // ── Constellation coverage overlap heatmap (2D) ──
@@ -2012,6 +2065,14 @@ renderHeatmapLegend();
 
 document.getElementById('btnLoadConstellation').addEventListener('click', loadConstellation);
 document.getElementById('btnClearConstellation').addEventListener('click', clearConstellation);
+document.getElementById('toggleTrails').addEventListener('change', () => {
+    trailsDirty = true;
+    updateFullTrack();
+});
+document.getElementById('trailLength').addEventListener('change', (e) => {
+    trailLengthMode = e.target.value;
+    trailsDirty = true;
+});
 
 // ── Render loop with animation ──
 function animate(timestamp) {
@@ -2145,6 +2206,12 @@ function animateConstellation(fraction) {
     const showTrails = document.getElementById('toggleTrails').checked;
     const n = constellation.sats.length;
     const trailsForAll = n <= 60;
+    const trailLen = trailLengthMode === 'full' ? constellation.duration : (parseInt(trailLengthMode, 10) || 3600);
+    const TRAIL_N = 120;
+    const trailDt = trailLen / (TRAIL_N - 1);
+    trailFrameCounter++;
+    const updateTrailsNow = showTrails && (trailsDirty || trailFrameCounter % 5 === 0);
+    if (updateTrailsNow) trailsDirty = false;
 
     for (let i = 0; i < n; i++) {
         const s = constellation.sats[i];
@@ -2156,15 +2223,17 @@ function animateConstellation(fraction) {
         }
 
         if (showTrails && (trailsForAll || i === selectedSatIndex)) {
-            const pts = [];
-            for (let k = 7; k >= 0; k--) {
-                const ts = simElapsed - k * 75; // 10-minute trail in 75s steps
-                const [px, py, pz] = getEciAtTime(s, ts);
-                const th = thetaGP - OMEGA_E * (simElapsed - ts);
-                const [tlat, tlon] = eciToLatLon(px, py, pz, th);
-                if (isFinite(tlat) && isFinite(tlon)) pts.push([tlat, tlon]);
+            if (updateTrailsNow) {
+                const pts = [];
+                for (let k = TRAIL_N - 1; k >= 0; k--) {
+                    const ts = simElapsed - k * trailDt;
+                    const [px, py, pz] = getEciAtTime(s, ts);
+                    const th = thetaGP - OMEGA_E * (simElapsed - ts);
+                    const [tlat, tlon] = eciToLatLon(px, py, pz, th);
+                    if (isFinite(tlat) && isFinite(tlon)) pts.push([tlat, tlon]);
+                }
+                constellationTrails[i].setLatLngs(pts);
             }
-            constellationTrails[i].setLatLngs(pts);
         } else if (!showTrails && constellationTrails[i].getLatLngs().length > 0) {
             constellationTrails[i].setLatLngs([]);
         }
