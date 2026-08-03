@@ -9,20 +9,9 @@
 ![Flask](https://img.shields.io/badge/Flask-2.0+-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey)
 
+**简体中文** | [English](README.en.md)
+
 </div>
-
----
-
-## 📑 目录
-
-- [功能特性](#功能特性)
-- [截图](#截图)
-- [快速开始](#快速开始)
-- [星座跟踪](#星座跟踪)
-- [API](#api)
-- [项目结构](#项目结构)
-- [技术说明](#技术说明)
-- [许可证](#许可证)
 
 ---
 
