@@ -8,6 +8,7 @@ Interactive spacecraft orbit visualization: **3D Earth orbit animation + 2D Merc
 ![Python](https://img.shields.io/badge/Python-3.8+-blue)
 ![Flask](https://img.shields.io/badge/Flask-2.0+-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey)
+![Built with AI](https://img.shields.io/badge/Built%20with-AI%20Assisted-purple)
 
 [简体中文](README.md) | **English**
 
@@ -115,6 +116,13 @@ start.bat                   Windows launcher
 - **Offline strategy**: the page references no CDN; Leaflet, Three.js, OrbitControls, the earth texture and d3 all live in `static/vendor/`; missing map tiles fall back to `static/placeholder.png` via `errorTileUrl`. Only live TLE fetching (`/api/fetch-tle`) depends on the internet, and the constellation falls back to the local preset snapshot when it fails
 - **Constellation implementation**: the frontend parses multi-satellite TLE and propagates mean anomaly to the simulation start; the backend batch-computes ECI animation arrays, and the animation interpolates each satellite by its own period modulo, all synchronized in 2D/3D by Earth rotation (GST)
 - **Development tip**: Flask caches templates when `debug=False`; after editing `templates/index.html`, restart with `python app.py`
+
+## 🤖 AI Tooling Statement
+
+This project was developed end-to-end with AI-assisted tooling:
+
+- **opencode / Codex / Reasonix** as the development and collaboration tools
+- **DeepSeek V4 Flash / Pro** as the primary models
 
 ## 📄 License
 

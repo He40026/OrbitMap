@@ -8,6 +8,7 @@
 ![Python](https://img.shields.io/badge/Python-3.8+-blue)
 ![Flask](https://img.shields.io/badge/Flask-2.0+-green)
 ![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey)
+![Built with AI](https://img.shields.io/badge/Built%20with-AI%20Assisted-purple)
 
 **简体中文** | [English](README.en.md)
 
@@ -117,6 +118,13 @@ start.bat                   Windows 启动脚本
 - **离线策略**:页面不引用任何 CDN;Leaflet、Three.js、OrbitControls、地球贴图与 d3 全部位于 `static/vendor/`;地图瓦片缺失时 `errorTileUrl` 回退到 `static/placeholder.png`。只有实时 TLE 拉取(`/api/fetch-tle`)依赖外部网络,失败时星座自动使用本地预设快照
 - **星座实现**:前端解析多星 TLE 并按模拟开始时间传播平近点角,后端批量计算(ECI 动画数组),动画按各星周期模长插值,统一由地球自转(GST)驱动 2D/3D 同步
 - **开发提示**:Flask 以 `debug=False` 运行时会缓存模板,修改 `templates/index.html` 后需重启 `python app.py`
+
+## 🤖 AI 工具声明
+
+本项目全程使用 AI 工具辅助开发与协作:
+
+- **opencode / Codex / Reasonix** 作为开发与协作工具
+- **DeepSeek V4 Flash / Pro** 作为主要模型
 
 ## 📄 许可证
 
