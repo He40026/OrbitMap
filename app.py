@@ -1,7 +1,14 @@
 """Flask web application for orbit visualization."""
 
 import math
+import mimetypes
 import os
+
+try:
+    mimetypes.init()
+except Exception:
+    mimetypes.MimeTypes.read_windows_registry = lambda self, *args, **kwargs: None
+    mimetypes.init()
 from flask import Flask, render_template, request, jsonify
 import numpy as np
 import urllib.request
@@ -11,6 +18,7 @@ from orbit_calc import (
 )
 
 app = Flask(__name__)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 TLE_GROUPS = {
     'gps-ops', 'beidou', 'weather', 'starlink',

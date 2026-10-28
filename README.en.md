@@ -36,6 +36,7 @@ Interactive spacecraft orbit visualization: **3D Earth orbit animation + 2D Merc
 | 🛸 Constellation tracking | Load and track GPS / BeiDou / weather (Fengyun) / Starlink / Iridium NEXT / Galileo / GLONASS / OneWeb constellations, online real-time TLE first with a local preset fallback; satellite count limit, dropdown selection, hand-off to single-satellite mode, ground trails and coverage heatmap |
 | 🧮 Orbit computation | Kepler equation solver, 3-1-3 Euler rotation ECI transform, Earth-rotation-included ground track, perigee/apogee/period orbital elements |
 | 📴 Fully offline | Leaflet / Three.js / earth texture / d3 all vendored under `static/vendor/`; missing map tiles fall back to a placeholder; **only live TLE fetching (single-satellite / constellation) requires the internet** |
+| 🖥️ Flexible Layout | Switch freely between **Vertical split (3D top / 2D bottom)** and **Horizontal split (3D left / 2D right)**, optimized for widescreen/ultrawide monitors, auto-adapts FOV and zoom, preferences saved in localStorage |
 
 ## 🚀 Quick Start
 

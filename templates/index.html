@@ -72,7 +72,84 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
 
 #status { margin-top: 8px; font-size: 0.65em; color: #666; min-height: 1.2em; text-align: center; }
 
-#main { flex: 1; display: flex; flex-direction: column; }
+#main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+#main.layout-vertical {
+    display: flex;
+    flex-direction: column;
+}
+#main.layout-vertical #globe3d {
+    flex: 1.2;
+    min-height: 0;
+    width: 100%;
+}
+#main.layout-vertical #progressBar {
+    width: 100%;
+}
+#main.layout-vertical #tileBar {
+    width: 100%;
+    border-bottom: 1px solid #2a2a4a;
+}
+#main.layout-vertical #map2d {
+    flex: 1;
+    min-height: 250px;
+    width: 100%;
+    border-left: none;
+}
+
+#main.layout-horizontal {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr auto auto;
+    grid-template-areas:
+        "globe map"
+        "prog prog"
+        "tile tile";
+    height: 100vh;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+}
+#main.layout-horizontal #globe3d {
+    grid-area: globe;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+}
+#main.layout-horizontal #map2d {
+    grid-area: map;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    border-left: 1px solid #2a2a4a;
+}
+#main.layout-horizontal #progressBar {
+    grid-area: prog;
+    width: 100%;
+    border-top: 1px solid #2a2a4a;
+}
+#main.layout-horizontal #tileBar {
+    grid-area: tile;
+    width: 100%;
+    border-top: 1px solid #2a2a4a;
+    border-bottom: none;
+}
+
+#layoutSwitch { display: flex; gap: 4px; margin-bottom: 12px; }
+.layout-btn {
+    flex: 1; padding: 6px 4px; font-size: 0.72em; background: #252540; color: #aaa;
+    border: 1px solid #3a3a5a; border-radius: 4px; cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.layout-btn:hover { background: #3a3a5a; color: #fff; }
+.layout-btn.active { background: #4a5aff; color: #fff; border-color: #4a5aff; }
+
+#tileBar .layout-btn {
+    flex: none; padding: 2px 8px; font-size: 0.65em; border-radius: 3px;
+}
 #globe3d { flex: 1.2; min-height: 0; position: relative; background: #080818; }
 #globe3d canvas { display: block; }
 
@@ -138,6 +215,11 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
         <div id="modeSwitch">
             <button type="button" id="modeSingle" class="mode-btn active" data-mode="single">单星 Satellite</button>
             <button type="button" id="modeConstellation" class="mode-btn" data-mode="constellation">星座 Constellation</button>
+        </div>
+
+        <div id="layoutSwitch">
+            <button type="button" class="layout-btn active" data-layout="vertical" title="上下分屏 Vertical（上3D / 下2D）">上下 3D/2D</button>
+            <button type="button" class="layout-btn" data-layout="horizontal" title="左右横版 Horizontal（左3D / 右2D）">左右 3D/2D</button>
         </div>
 
         <div class="form-group" style="margin-bottom:12px;">
@@ -309,7 +391,7 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
         <div id="status"></div>
     </div>
 
-    <div id="main">
+    <div id="main" class="layout-vertical">
         <div id="globe3d">
             <div id="loading">Loading 3D Engine...<br>正在加载3D引擎...</div>
         </div>
@@ -324,6 +406,9 @@ html, body { height: 100%; font-family: 'Segoe UI', 'Microsoft YaHei', system-ui
     <span style="margin-left:16px;">Speed 速度:</span>
             <input type="range" id="speedSlider" min="2" max="30" value="10" step="1">
             <span class="speed-label" id="speedLabel">10s</span>
+            <span style="margin-left:14px;">Layout 布局:</span>
+            <button type="button" class="layout-btn active" data-layout="vertical" title="上下分屏 Vertical（上3D / 下2D）">上下 3D/2D</button>
+            <button type="button" class="layout-btn" data-layout="horizontal" title="左右横版 Horizontal（左3D / 右2D）">左右 3D/2D</button>
         </div>
         <div id="map2d">
             <canvas id="coverageHeatmap" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; z-index:440;"></canvas>
@@ -387,6 +472,7 @@ let singleSatName = null;
 let lastSimElapsed = 0;
 let lastThetaGP = 0;
 let covHeatFrame = 0;
+let earthGroup = null;
 
 const covHeatCanvas = document.getElementById('coverageHeatmap');
 const covHeatCtx = covHeatCanvas.getContext('2d');
@@ -480,10 +566,9 @@ let activeTileLayer = null;
 // ── Leaflet map ──
 const leafletMap = L.map(map2dEl, {
     zoomControl: false, attributionControl: true,
-    scrollWheelZoom: false, dragging: false, doubleClickZoom: false,
+    scrollWheelZoom: false, dragging: true, doubleClickZoom: false,
     touchZoom: false, keyboard: false,
-    maxBounds: [[-90, -180], [90, 180]],
-    maxBoundsViscosity: 1.0, zoomSnap: 0.5
+    zoomSnap: 0.1
 }).setView([0, 0], 2);
 
 function setTileLayer(key) {
@@ -530,21 +615,15 @@ function syncD3Projection() {
     if (w <= 0 || h <= 0) return;
     const c = leafletMap.getCenter();
     const zoom = leafletMap.getZoom();
-    // 精确 Web Mercator 容器坐标:Leaflet 的 latLngToContainerPoint 内部会取整(_round),
-    // 导致参考点像素差失真(0.5° 在 zoom 2 下仅 1px vs 真实 1.42px,比例误差 ~30%)
-    const pt = (lat, lng) => {
-        const p = L.CRS.EPSG3857.latLngToPoint(L.latLng(lat, lng), zoom);
-        const o = leafletMap.getPixelOrigin();
-        return { x: p.x - o.x, y: p.y - o.y };
-    };
-    const p0 = pt(c.lat, c.lng);
-    const p1 = pt(c.lat, c.lng + 1);
-    const k = (p1.x - p0.x) / (Math.PI / 180);
+    const k = (256 * Math.pow(2, zoom)) / (2 * Math.PI);
     const lam = c.lng * Math.PI / 180, phi = c.lat * Math.PI / 180;
-    const tx = p0.x - k * lam;
-    // d3 geoMercator 默认 y 向上为正(纬度增大 y 减小),与 Leaflet 一致;不需要 reflectY
-    const ty = p0.y + k * Math.log(Math.tan(Math.PI / 4 + phi / 2));
-    d3Proj.scale(k).translate([tx, ty]).clipExtent([[0, 0], [w, h]]);
+    const tx = w / 2 - k * lam;
+    const ty = h / 2 + k * Math.log(Math.tan(Math.PI / 4 + phi / 2));
+    d3Proj.scale(k).translate([tx, ty]);
+    if (typeof earthGroup !== 'undefined' && earthGroup) {
+        const gstNow = ((earthGroup.rotation.y * 180 / Math.PI) % 360 + 360) % 360;
+        updateTerminatorDynamic(gstNow);
+    }
 }
 syncD3Projection();
 leafletMap.on('move zoom resize', syncD3Projection);
@@ -614,7 +693,7 @@ starsGeom.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
 scene.add(new THREE.Points(starsGeom, new THREE.PointsMaterial({ color: 0xffffff, size: 80, sizeAttenuation: true })));
 
 // Earth group (rotates for animation)
-const earthGroup = new THREE.Group();
+earthGroup = new THREE.Group();
 const earthGeom = new THREE.SphereGeometry(R_EARTH, 96, 64);
 const earthMat = new THREE.MeshPhongMaterial({ color: 0x2E86C1, shininess: 5, specular: 0x111122 });
 const earth = new THREE.Mesh(earthGeom, earthMat);
@@ -2281,6 +2360,50 @@ function animateConstellation(fraction) {
 }
 
 // ── Resize ──
+// ── Layout Switcher (Vertical / Horizontal) ──
+function applyLayout(mode, persist = true) {
+    const mainEl = document.getElementById('main');
+    if (!mainEl) return;
+    const isHoriz = (mode === 'horizontal');
+    if (isHoriz) {
+        mainEl.classList.remove('layout-vertical');
+        mainEl.classList.add('layout-horizontal');
+    } else {
+        mode = 'vertical';
+        mainEl.classList.remove('layout-horizontal');
+        mainEl.classList.add('layout-vertical');
+    }
+
+    document.querySelectorAll('.layout-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.layout === mode);
+    });
+
+    if (persist) {
+        try { localStorage.setItem('orbitmap_layout', mode); } catch (e) {}
+    }
+
+    const updateViewSizes = () => {
+        const w = globeContainer.clientWidth;
+        const h = globeContainer.clientHeight;
+        if (w > 0 && h > 0) {
+            renderer.setSize(w, h);
+            camera.aspect = w / Math.max(h, 1);
+            camera.updateProjectionMatrix();
+        }
+        leafletMap.invalidateSize({ pan: false });
+        leafletMap.setView([0, 0], 2, { animate: false });
+        syncD3Projection();
+    };
+
+    updateViewSizes();
+    setTimeout(updateViewSizes, 60);
+    setTimeout(updateViewSizes, 200);
+}
+
+document.querySelectorAll('.layout-btn').forEach(btn => {
+    btn.addEventListener('click', () => applyLayout(btn.dataset.layout));
+});
+
 window.addEventListener('resize', () => {
     const w = globeContainer.clientWidth;
     const h = globeContainer.clientHeight;
@@ -2288,11 +2411,21 @@ window.addEventListener('resize', () => {
     renderer.setSize(w, h);
     camera.aspect = w / Math.max(h, 1);
     camera.updateProjectionMatrix();
-    leafletMap.invalidateSize();
+    leafletMap.invalidateSize({ pan: false });
+    syncD3Projection();
 });
 
 // ── Start render loop ──
 // Ensure canvas has correct size before first render
+const savedLayout = (() => {
+    try { return localStorage.getItem('orbitmap_layout'); } catch (e) { return null; }
+})();
+if (savedLayout === 'horizontal') {
+    applyLayout('horizontal', false);
+} else {
+    applyLayout('vertical', false);
+}
+
 const doResize = () => {
     const w = globeContainer.clientWidth;
     const h = globeContainer.clientHeight;
